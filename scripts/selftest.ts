@@ -193,6 +193,39 @@ check('de kassa staat in de cache', (await db.registers.count()) === 1)
 check('er zijn drie artikelen', (await db.products.count()) === 3)
 check('de wachtrij is nog leeg', (await db.outbox.count()) === 0)
 
+/* ---- de code van een kassa ---- */
+
+const opschonen = kassa.kassaCodeOpschonen
+
+check('een code met een spaties wordt bruikbaar gemaakt',
+  opschonen('Balie 1') === 'BALIE-1', opschonen('Balie 1'))
+check('punten worden streepjes',
+  opschonen('KAS.UTR.1') === 'KAS-UTR-1', opschonen('KAS.UTR.1'))
+check('kleine letters worden hoofdletters',
+  opschonen('kas utr 1') === 'KAS-UTR-1', opschonen('kas utr 1'))
+check('een bruikbare code blijft ongewijzigd',
+  opschonen('KAS-UTR-1') === 'KAS-UTR-1', opschonen('KAS-UTR-1'))
+check('ruimte eromheen valt eraf',
+  opschonen('  KAS-UTR-1  ') === 'KAS-UTR-1', opschonen('  KAS-UTR-1  '))
+check('leestekens vallen eraf',
+  opschonen('Balie (voorkant)') === 'BALIE-VOORKANT', opschonen('Balie (voorkant)'))
+check('dubbele streepjes worden er een',
+  opschonen('KAS--UTR') === 'KAS-UTR', opschonen('KAS--UTR'))
+
+check('twee tekens is te kort', kassa.kassaCodeProbleem(opschonen('ka')) !== null)
+check('drie tekens mag', kassa.kassaCodeProbleem(opschonen('KAS')) === null)
+check('meer dan twintig tekens is te lang',
+  kassa.kassaCodeProbleem(opschonen('A'.repeat(21))) !== null)
+
+/*
+ * Waar dit over gaat: de code komt vooraan in elk bonnummer, en dat nummer
+ * moet uniek zijn in de database. Een code die stilletjes iets anders wordt
+ * dan wat iemand intikte, geeft later bonnummers die niemand terugvindt.
+ */
+const bonNaOpschonen = opschonen('Balie 1')
+check('een opgeschoonde code levert een bruikbaar bonnummer',
+  /^[A-Z0-9-]+$/.test(bonNaOpschonen))
+
 /* ================================================================== *
  *  3. De persoonlijke code
  * ================================================================== */

@@ -77,7 +77,21 @@ export default function App() {
   }
 
   /* ---- poort 1: ingericht? ---- */
-  if (!apparaat || !register) return <Inrichten />
+  if (!apparaat || !register) {
+    return (
+      <>
+        <Inrichten />
+        {/*
+          Zonder dit is elke melding tijdens het inrichten onzichtbaar.
+          Meldingen komen rechtsonder in beeld, en die hoek bestond in deze
+          poort niet -- dus leek een geweigerde kassacode op "er gebeurt
+          niets als ik op de knop druk". Dat is het ergste soort fout: er is
+          wel een uitleg, hij komt alleen nergens aan.
+        */}
+        <Toasts />
+      </>
+    )
+  }
 
   /* ---- poort 2: wie staat erachter? ---- */
   if (!operator && !alleenKlok) {

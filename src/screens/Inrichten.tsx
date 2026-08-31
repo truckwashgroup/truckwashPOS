@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Monitor, Plus } from 'lucide-react'
+import { Monitor, Plus, RefreshCw } from 'lucide-react'
 import logo from '../assets/logo.webp'
-import { Fout, Knop, Veld, Waarschuwing } from '../components/ui'
+import { Fout, Knop, Uitleg, Veld, Waarschuwing } from '../components/ui'
 import { db, uid } from '../lib/db'
-import { bewaarRegister, kiesRegister } from '../lib/kassa'
+import {
+  bewaarRegister, kassaCodeOpschonen, kassaCodeProbleem, kiesRegister,
+} from '../lib/kassa'
 import { can } from '../lib/permissions'
+import { useSync } from '../lib/sync'
 import { useAuth } from '../store/useAuth'
 import { toast } from '../store/useToasts'
 import type { PosRegister } from '../lib/types'
@@ -22,6 +25,10 @@ import type { PosRegister } from '../lib/types'
  *
  *  Daarna blijft dit staan, ook na een herstart en ook zonder internet. Wie er
  *  achter de kassa staat is een andere vraag; die stelt Aanmelden.
+ *
+ *  Elke melding in dit scherm staat in het scherm zelf, niet in een
+ *  wegschuivend blokje rechtsonder. Dit is het enige punt waar iemand nog
+ *  niets van de app weet: iets wat niet lukt moet hier hardop zeggen waarom.
  * ------------------------------------------------------------------ */
 
 export default function Inrichten() {
@@ -97,7 +104,9 @@ function Aanmelden({
 
 function KassaKiezen() {
   const { apparaat, logout } = useAuth()
+  const { syncing, pending, lastError, online, sync } = useSync()
   const [waarschuwing, setWaarschuwing] = useState<string | null>(null)
+  const [fout, setFout] = useState<string | null>(null)
   const [nieuw, setNieuw] = useState(false)
 
   const registers = useLiveQuery(async () => {
@@ -110,11 +119,12 @@ function KassaKiezen() {
   const mag = can(apparaat, 'pos.manage')
 
   async function kies(id: string) {
+    setFout(null)
     try {
       const { waarschuwing: w } = await kiesRegister(id)
       if (w) setWaarschuwing(w)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Kiezen lukte niet')
+      setFout(e instanceof Error ? e.message : 'Deze kassa kiezen lukte niet.')
     }
   }
 
@@ -128,9 +138,38 @@ function KassaKiezen() {
           in de wachtrij hangen — geef zo'n tweede apparaat een eigen kassa.
         </p>
 
+        {fout && <div style={{ marginBottom: 16 }}><Fout>{fout}</Fout></div>}
+
         {waarschuwing && (
           <div style={{ marginBottom: 16 }}>
             <Waarschuwing>{waarschuwing}</Waarschuwing>
+          </div>
+        )}
+
+        {/*
+          Als de eerste synchronisatie strandde, is de lijst leeg om een reden
+          die niets met kassa's te maken heeft. Dat hoort hier te staan en niet
+          in een logboek.
+        */}
+        {lastError && (
+          <div style={{ marginBottom: 16 }}>
+            <Fout>
+              De kassa kon de gegevens niet ophalen: {lastError}
+              <div style={{ marginTop: 10 }}>
+                <Knop maat="klein" onClick={() => void sync()} disabled={syncing}>
+                  <RefreshCw size={15} /> {syncing ? 'Bezig…' : 'Opnieuw proberen'}
+                </Knop>
+              </div>
+            </Fout>
+          </div>
+        )}
+
+        {!lastError && !online && (
+          <div style={{ marginBottom: 16 }}>
+            <Waarschuwing>
+              Geen verbinding. Inrichten kan alleen met internet, want de kassa
+              moet weten welke kassa's er al zijn.
+            </Waarschuwing>
           </div>
         )}
 
@@ -142,7 +181,7 @@ function KassaKiezen() {
         ) : (
           <div className="rooster">
             {registers.map((r) => (
-              <button key={r.id} type="button" className="tegel" onClick={() => kies(r.id)}>
+              <button key={r.id} type="button" className="tegel" onClick={() => void kies(r.id)}>
                 <div>
                   <div className="naam">{r.name || r.code}</div>
                   <div className="sub">{r.code}</div>
@@ -156,7 +195,7 @@ function KassaKiezen() {
           </div>
         )}
 
-        {mag && (
+        {mag ? (
           <div style={{ marginTop: 18 }}>
             {nieuw ? (
               <NieuweKassa onKlaar={() => setNieuw(false)} />
@@ -166,12 +205,24 @@ function KassaKiezen() {
               </Knop>
             )}
           </div>
+        ) : (
+          <div style={{ marginTop: 18 }}>
+            <Uitleg>
+              Een kassa aanmaken vraagt het recht "Kassa beheren". Dat deelt het
+              management uit in het dashboard, onder Personeel → Rechten.
+            </Uitleg>
+          </div>
         )}
 
         <div style={{ marginTop: 22, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
           <Knop soort="stil" maat="klein" onClick={() => void logout()}>
             Ander account gebruiken
           </Knop>
+          {pending > 0 && (
+            <span style={{ marginLeft: 12, fontSize: 12.5, color: 'var(--text-3)' }}>
+              {pending} wijziging(en) wachten nog op verzending
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -182,64 +233,111 @@ function KassaKiezen() {
 
 function NieuweKassa({ onKlaar }: { onKlaar: () => void }) {
   const { apparaat } = useAuth()
-  const [code, setCode] = useState('')
+  const [ruweCode, setRuweCode] = useState('')
   const [naam, setNaam] = useState('')
   const [locatie, setLocatie] = useState(apparaat?.locationId ?? '')
+  const [fout, setFout] = useState<string | null>(null)
+  const [bezig, setBezig] = useState(false)
 
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [])
 
+  // Wat er van de ingetikte code overblijft. Meteen te zien, zodat niemand
+  // zich hoeft af te vragen waarom "Balie 1" niet mag.
+  const code = kassaCodeOpschonen(ruweCode)
+  const probleem = ruweCode ? kassaCodeProbleem(code) : null
+
   async function maak(e: React.FormEvent) {
     e.preventDefault()
-    const schoon = code.trim().toUpperCase()
-    if (!/^[A-Z0-9-]{3,20}$/.test(schoon)) {
-      toast.error('Een code bestaat uit letters, cijfers en streepjes, 3 tot 20 tekens.')
-      return
+    setFout(null)
+
+    const bezwaar = kassaCodeProbleem(code)
+    if (bezwaar) { setFout(bezwaar); return }
+
+    setBezig(true)
+    try {
+      const bestaat = (await db.registers.toArray()).some((r) => r.code === code)
+      if (bestaat) {
+        setFout(
+          `Er is al een kassa met code ${code}. Kies die hierboven als dit dat ` +
+          'apparaat is, of neem een andere code.',
+        )
+        return
+      }
+
+      const register = await bewaarRegister({
+        id: uid('kassa'),
+        locationId: locatie || undefined,
+        code,
+        name: naam.trim() || code,
+        printer: { kind: 'geen', breedte: 42, ladeViaPrinter: true, automatisch: true },
+        terminal: { provider: 'handmatig' },
+        lastSeq: 0,
+        active: true,
+        updatedAt: Date.now(),
+      })
+
+      await kiesRegister(register.id)
+      toast.ok(`Kassa ${code} aangemaakt.`)
+      onKlaar()
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De kassa aanmaken lukte niet.')
+    } finally {
+      setBezig(false)
     }
-
-    const bestaat = (await db.registers.toArray()).some((r) => r.code === schoon)
-    if (bestaat) {
-      toast.error(`Er is al een kassa met code ${schoon}.`)
-      return
-    }
-
-    const register = await bewaarRegister({
-      id: uid('kassa'),
-      locationId: locatie || undefined,
-      code: schoon,
-      name: naam.trim() || schoon,
-      printer: { kind: 'geen', breedte: 42, ladeViaPrinter: true, automatisch: true },
-      terminal: { provider: 'handmatig' },
-      lastSeq: 0,
-      active: true,
-      updatedAt: Date.now(),
-    })
-
-    await kiesRegister(register.id)
-    toast.ok(`Kassa ${schoon} aangemaakt.`)
-    onKlaar()
   }
 
   return (
     <form
       onSubmit={maak}
-      style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 420 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 460 }}
     >
-      <Veld label="Code" hint="Kort en uniek. Hiermee beginnen de bonnummers, bijvoorbeeld KAS-UTR-1.">
-        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="KAS-UTR-1" required />
+      <Veld
+        label="Code"
+        hint="Kort en uniek. Hiermee beginnen de bonnummers, bijvoorbeeld KAS-UTR-1."
+      >
+        <input
+          value={ruweCode}
+          onChange={(e) => { setRuweCode(e.target.value); setFout(null) }}
+          placeholder="KAS-UTR-1"
+          autoFocus
+        />
       </Veld>
+
+      {ruweCode && (
+        code !== ruweCode.toUpperCase().trim() || probleem ? (
+          <div style={{ fontSize: 13, color: probleem ? 'var(--text-danger)' : 'var(--text-2)' }}>
+            {probleem
+              ? probleem
+              : <>Wordt opgeslagen als <strong className="cijfers">{code}</strong> —
+                  spaties en punten worden streepjes, want dit staat in elk bonnummer.</>}
+          </div>
+        ) : null
+      )}
+
       <Veld label="Naam">
         <input value={naam} onChange={(e) => setNaam(e.target.value)} placeholder="Balie Utrecht" />
       </Veld>
-      <Veld label="Vestiging">
+
+      <Veld
+        label="Vestiging"
+        hint={locaties.length === 0
+          ? 'Er zijn nog geen vestigingen opgehaald. Dat mag: je kunt dit later onder Beheer zetten.'
+          : 'Bepaalt welke artikelen, wasopdrachten en medewerkers deze kassa ziet.'}
+      >
         <select value={locatie} onChange={(e) => setLocatie(e.target.value)}>
-          <option value="">— kies een vestiging —</option>
+          <option value="">— geen vestiging —</option>
           {locaties.map((l) => (
             <option key={l.id} value={l.id}>{l.name}</option>
           ))}
         </select>
       </Veld>
+
+      {fout && <Fout>{fout}</Fout>}
+
       <div style={{ display: 'flex', gap: 10 }}>
-        <Knop soort="hoofd" type="submit">Aanmaken en gebruiken</Knop>
+        <Knop soort="hoofd" type="submit" disabled={bezig || !code || Boolean(probleem)}>
+          {bezig ? 'Bezig…' : 'Aanmaken en gebruiken'}
+        </Knop>
         <Knop soort="stil" onClick={onKlaar}>Annuleren</Knop>
       </div>
     </form>

@@ -87,6 +87,41 @@ export async function bewaarRegister(register: PosRegister): Promise<PosRegister
 }
 
 /* ------------------------------------------------------------------ *
+ *  De code van een kassa
+ *
+ *  Die komt vooraan in elk bonnummer te staan, dus hij mag geen spaties of
+ *  leestekens bevatten: bonnummers gaan door bestandsnamen, door e-mail en
+ *  door de wachtrij van de printer heen.
+ *
+ *  Maar dat is geen reden om "Balie 1" te weigeren -- dat is wat iemand
+ *  intuitief intikt. We maken er BALIE-1 van en laten zien wat eruit komt.
+ *  Weigeren doen we alleen als er echt niets bruikbaars overblijft.
+ * ------------------------------------------------------------------ */
+
+export function kassaCodeOpschonen(ruw: string): string {
+  return ruw
+    .toUpperCase()
+    // Spaties, punten en schuine strepen worden streepjes; dat is wat iemand
+    // bedoelt met "Balie 1" of "KAS.UTR.1".
+    .replace(/[\s._/\\]+/g, '-')
+    // Wat dan nog geen letter, cijfer of streepje is, hoort er niet in.
+    .replace(/[^A-Z0-9-]/g, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/** Waarom deze code niet kan, of null als hij mag. */
+export function kassaCodeProbleem(opgeschoond: string): string | null {
+  if (opgeschoond.length < 3) {
+    return 'Een code heeft minstens drie letters of cijfers nodig, bijvoorbeeld KAS-UTR-1.'
+  }
+  if (opgeschoond.length > 20) {
+    return 'Een code van meer dan twintig tekens wordt op de bon onleesbaar.'
+  }
+  return null
+}
+
+/* ------------------------------------------------------------------ *
  *  Bonnummers
  * ------------------------------------------------------------------ */
 
