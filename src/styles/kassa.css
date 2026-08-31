@@ -699,3 +699,105 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   from { transform: rotate(0deg) }
   to   { transform: rotate(360deg) }
 }
+
+/* ==================================================================
+   Licht
+
+   Dezelfde tokens, andere waarden -- overgenomen uit de wasstraat-app,
+   zodat de twee apps naast elkaar niet als twee producten aanvoelen.
+
+   [data-thema] wordt door theme.ts op <html> gezet. Staat er niets, dan
+   blijft het donkere palet hierboven staan; dat is de stand waarin een
+   kassa in een wasstraat het beste leest.
+
+   Waarom het bij een kassa uitmaakt: een balie bij een raam is midden op
+   de dag onleesbaar in het donker, en een kassa in een hal met tl-licht
+   is 's avonds te fel in het licht. Dat wisselt per vestiging, niet per
+   voorkeur.
+   ================================================================== */
+
+:root[data-thema="licht"] {
+  --bg:            #eef1f6;
+  --bg-2:          #f6f8fb;
+  --surface:       #ffffff;
+  --surface-2:     #f2f5fa;
+  --surface-3:     #e4eaf3;
+  --line:          #cdd6e4;
+  --line-soft:     #dfe5ee;
+
+  --text:          #10192a;
+  --text-2:        #46536b;
+  --text-3:        #75839c;
+
+  --brand:         #e0a800;
+  --brand-2:       #b98900;
+  --on-brand:      #1a1300;
+  --accent:        #1f7fc4;
+
+  --ok:            #12864c;
+  --warn:          #a86b00;
+  --danger:        #c0342a;
+  --info:          #2f5fbd;
+
+  --shadow:        0 10px 30px rgba(19, 33, 60, .12);
+  --shadow-sm:     0 2px 8px rgba(19, 33, 60, .08);
+
+  --tint-brand:    rgba(224, 168, 0, .20);
+  --line-brand:    rgba(224, 168, 0, .45);
+  --text-brand:    #8a6500;
+
+  --tint-ok:       rgba(18, 134, 76, .12);
+  --line-ok:       rgba(18, 134, 76, .34);
+  --text-ok:       #0d6b3c;
+
+  --tint-warn:     rgba(168, 107, 0, .14);
+  --line-warn:     rgba(168, 107, 0, .32);
+  --text-warn:     #7d4f00;
+
+  --tint-danger:   rgba(192, 52, 42, .12);
+  --line-danger:   rgba(192, 52, 42, .30);
+  --text-danger:   #9c2a21;
+
+  --tint-info:     rgba(47, 95, 189, .12);
+  --line-info:     rgba(47, 95, 189, .30);
+  --text-info:     #274f9e;
+
+  color-scheme: light;
+}
+
+/* De gloed rechtsboven en de balk zijn in het licht een andere kleur. */
+:root[data-thema="licht"] body {
+  background:
+    radial-gradient(1200px 700px at 100% 0%, rgba(224, 168, 0, .10), transparent 60%),
+    var(--bg);
+}
+
+:root[data-thema="licht"] .balk {
+  background: rgba(255, 255, 255, .86);
+}
+
+:root[data-thema="licht"] .bonkant {
+  background: rgba(255, 255, 255, .7);
+}
+
+:root[data-thema="licht"] .bonkant .voet {
+  background: rgba(238, 241, 246, .8);
+}
+
+/* De bon is papier: die blijft in beide standen licht. */
+
+/* ==================================================================
+   Rustige beweging
+
+   Wie in zijn systeem heeft gezegd dat hij minder beweging wil, krijgt
+   dat ook. Alles blijft werken; het gaat alleen ineens in plaats van
+   geleidelijk. Op een oude tablet scheelt het merkbaar.
+   ================================================================== */
+
+:root[data-beweging="rustig"] *,
+:root[data-beweging="rustig"] *::before,
+:root[data-beweging="rustig"] *::after {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+}

@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { startThemaMotor } from './lib/theme'
 import { logLive } from './lib/trail'
 import './styles/kassa.css'
 
@@ -21,6 +22,15 @@ window.addEventListener('unhandledrejection', (e) => {
     detail: reden instanceof Error ? reden.stack : undefined,
   })
 })
+
+/*
+ * Licht of donker zetten vóór de eerste render.
+ *
+ * Doe je dit erna, dan ziet iedereen met een lichte voorkeur eerst een
+ * donkere flits. Dat is precies het soort detail dat een app goedkoop laat
+ * lijken zonder dat iemand kan zeggen waarom.
+ */
+startThemaMotor()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

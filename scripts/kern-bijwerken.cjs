@@ -38,6 +38,7 @@ const LETTERLIJK = [
   'src/lib/trail.ts',
   'src/lib/notify.ts',
   'src/lib/permissions.ts',
+  'src/lib/theme.ts',
 ]
 
 /**

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Monitor, Plus, RefreshCw } from 'lucide-react'
-import logo from '../assets/logo.webp'
+import logo from '../assets/kassa-icoon.png'
 import { Fout, Knop, Uitleg, Veld, Waarschuwing } from '../components/ui'
 import { db, uid } from '../lib/db'
 import {

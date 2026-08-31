@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Clock, CloudOff, Download, LogOut, Receipt, RefreshCw, Settings, ShoppingCart,
-  Wallet,
+  Clock, CloudOff, Download, LogOut, Moon, Receipt, RefreshCw, Settings,
+  ShoppingCart, Sun, Wallet,
 } from 'lucide-react'
-import logo from './assets/logo.webp'
+import logo from './assets/kassa-icoon.png'
 import Toasts from './components/Toasts'
 import { Knop, Pil } from './components/ui'
 import Aanmelden from './screens/Aanmelden'
@@ -15,6 +15,7 @@ import Inrichten from './screens/Inrichten'
 import Kassa from './screens/Kassa'
 import Klok from './screens/Klok'
 import { time } from './lib/format'
+import { useTheme } from './lib/theme'
 import { huidigeRegister } from './lib/kassa'
 import { startSyncEngine, useSync } from './lib/sync'
 import { useUpdates } from './lib/updates'
@@ -154,6 +155,7 @@ function Balk({
 }) {
   const { operator } = useAuth()
   const { online, syncing, pending, lastError, sync } = useSync()
+  const { actief, thema, setThema } = useTheme()
   const updates = useUpdates()
   const [klok, setKlok] = useState(Date.now())
 
@@ -216,6 +218,25 @@ function Balk({
         {pending > 0
           ? `${pending} wacht`
           : online ? 'bij' : 'offline'}
+      </button>
+
+      {/*
+        Licht en donker in één tik. Aan een balie wisselt het licht met het
+        weer, niet met een voorkeur -- dus hoort dit binnen bereik te staan
+        en niet drie schermen diep. De volledige keuze (inclusief "volg het
+        systeem") staat onder Beheer.
+      */}
+      <button
+        type="button"
+        className="pil"
+        onClick={() => setThema(actief === 'donker' ? 'licht' : 'donker')}
+        title={thema === 'systeem'
+          ? 'Volgt nu je systeem — tik om vast te zetten'
+          : actief === 'donker' ? 'Naar licht' : 'Naar donker'}
+        style={{ cursor: 'pointer' }}
+        aria-label="Licht of donker"
+      >
+        {actief === 'donker' ? <Moon size={13} /> : <Sun size={13} />}
       </button>
 
       <span className="pil cijfers">{time(klok)}</span>

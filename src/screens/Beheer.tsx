@@ -14,6 +14,7 @@ import { kanAfdrukken, openLade, proefBon } from '../lib/hardware/printer'
 import { TERMINAL_LABELS } from '../lib/hardware/terminal'
 import { bewaarRegister, losseKlant } from '../lib/kassa'
 import { can } from '../lib/permissions'
+import { BEWEGING_LABELS, THEMA_LABELS, useTheme } from '../lib/theme'
 import { enqueue, useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
 import { useAuth } from '../store/useAuth'
@@ -95,7 +96,12 @@ export default function Beheer({ register }: { register: PosRegister }) {
       {blad === 'artikelen' && <Artikelen register={register} />}
       {blad === 'codes' && <Codes />}
       {blad === 'kassa' && <DezeKassa register={register} />}
-      {blad === 'over' && <Over />}
+      {blad === 'over' && (
+        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+          <Over />
+          <Weergave />
+        </div>
+      )}
     </div>
   )
 }
@@ -818,8 +824,79 @@ function DezeKassa({ register }: { register: PosRegister }) {
 }
 
 /* ================================================================== *
+ *  Weergave
+ *
+ *  De keuze staat op dit apparaat en niet in het dossier: een kassa bij een
+ *  raam en een kassa in een hal hebben allebei hun eigen stand nodig, ook al
+ *  staat er dezelfde medewerker achter.
+ * ================================================================== */
+
+function Weergave() {
+  const { thema, beweging, actief, setThema, setBeweging } = useTheme()
+
+  return (
+    <div className="kaart">
+      <h3>Weergave</h3>
+      <p className="uitleg">
+        Nu actief: {actief === 'donker' ? 'donker' : 'licht'}. Snel wisselen kan
+        ook met het zon- of maantje in de balk bovenaan.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+        {(Object.keys(THEMA_LABELS) as (keyof typeof THEMA_LABELS)[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className="lijstrij"
+            onClick={() => setThema(k)}
+            style={{
+              borderColor: thema === k ? 'var(--line-brand)' : undefined,
+              background: thema === k ? 'var(--tint-brand)' : undefined,
+            }}
+          >
+            <div className="rek">
+              <div className="titel">{THEMA_LABELS[k].label}</div>
+              <div className="onder">{THEMA_LABELS[k].hint}</div>
+            </div>
+            {thema === k && <Pil soort="merk">aan</Pil>}
+          </button>
+        ))}
+      </div>
+
+      <h3 style={{ marginTop: 22 }}>Beweging</h3>
+      <p className="uitleg">
+        Op een oudere tablet kost bewegen merkbaar rekenkracht, en aan een kassa
+        is snel belangrijker dan mooi.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+        {(Object.keys(BEWEGING_LABELS) as (keyof typeof BEWEGING_LABELS)[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className="lijstrij"
+            onClick={() => setBeweging(k)}
+            style={{
+              borderColor: beweging === k ? 'var(--line-brand)' : undefined,
+              background: beweging === k ? 'var(--tint-brand)' : undefined,
+            }}
+          >
+            <div className="rek">
+              <div className="titel">{BEWEGING_LABELS[k].label}</div>
+              <div className="onder">{BEWEGING_LABELS[k].hint}</div>
+            </div>
+            {beweging === k && <Pil soort="merk">aan</Pil>}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ================================================================== *
  *  Versie
  * ================================================================== */
+
 
 function Over() {
   const { channel, state, version, newVersion, percent, message, check, install } = useUpdates()
