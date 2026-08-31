@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Clock, CloudOff, Download, LogOut, Moon, Receipt, RefreshCw, Settings,
+  Clock, CloudOff, Download, LogOut, Moon, Music, Receipt, RefreshCw, Settings,
   ShoppingCart, Sun, Wallet,
 } from 'lucide-react'
 import logo from './assets/kassa-icoon.png'
@@ -14,6 +14,7 @@ import Dagafsluiting from './screens/Dagafsluiting'
 import Inrichten from './screens/Inrichten'
 import Kassa from './screens/Kassa'
 import Klok from './screens/Klok'
+import Muziek from './screens/Muziek'
 import { time } from './lib/format'
 import { useTheme } from './lib/theme'
 import { huidigeRegister } from './lib/kassa'
@@ -37,7 +38,7 @@ import { useMandje } from './store/useMandje'
  *  inklokken hoeft niet eerst kassabediende te worden.
  * ------------------------------------------------------------------ */
 
-type Blad = 'kassa' | 'klok' | 'bonnen' | 'kas' | 'beheer'
+type Blad = 'kassa' | 'klok' | 'bonnen' | 'kas' | 'muziek' | 'beheer'
 
 export default function App() {
   const { apparaat, operator, booting, restore, meldAf } = useAuth()
@@ -122,6 +123,7 @@ export default function App() {
         {!alleenKlok && blad === 'kassa' && <Kassa register={register} />}
         {!alleenKlok && blad === 'bonnen' && <Bonnen register={register} />}
         {!alleenKlok && blad === 'kas' && <Dagafsluiting register={register} />}
+        {!alleenKlok && blad === 'muziek' && <Muziek />}
         {!alleenKlok && blad === 'beheer' && <Beheer register={register} />}
       </div>
 
@@ -161,6 +163,7 @@ function Balk({
     { id: 'klok', label: 'Klok', icoon: <Clock size={16} /> },
     { id: 'bonnen', label: 'Bonnen', icoon: <Receipt size={16} /> },
     { id: 'kas', label: 'Kas', icoon: <Wallet size={16} /> },
+    { id: 'muziek', label: 'Muziek', icoon: <Music size={16} /> },
     { id: 'beheer', label: 'Beheer', icoon: <Settings size={16} /> },
   ]
 

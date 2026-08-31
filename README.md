@@ -175,6 +175,40 @@ onderscheidt scannen van typen aan de snelheid (dertig tekens per seconde haalt
 geen mens). Werkt op het kassascherm voor artikelen, en overal voor badges
 (`TWB-…`) en waskaarten (`TW-…`).
 
+### Muziek bijsturen
+
+De kassa kan de muziek bijsturen die op een speaker in het netwerk speelt:
+pauze, volgende, volume, dempen. Kiezen wát er speelt gebeurt op het apparaat
+waar het vandaan komt — aan een balie wil je alleen kunnen ingrijpen.
+
+Het gaat via **UPnP** (DLNA). Dat is één protocol voor alles: een Sonos spreekt
+het, en ook de meeste soundbars, AV-receivers en smart-tv's. Geen account, geen
+abonnement, geen sleutel, en geen internet — alles over het eigen netwerk. Dus
+werkt het ook als de verbinding met buiten eruit ligt, net als de rest van de
+kassa.
+
+Onder **Muziek → Zoeken op het netwerk** vraagt de kassa wie er muziek kan
+spelen (SSDP) en toont wat er antwoordt. Kies er een en de knoppen staan er.
+De keuze blijft op dít apparaat: een speaker heeft een adres op één netwerk, en
+de kassa in Rotterdam heeft niets te zoeken bij de boxen in Utrecht.
+
+Vindt hij niets, dan zijn er drie gebruikelijke oorzaken, en die staan ook in
+het scherm: kassa en speaker op verschillende netwerken, de Windows-firewall die
+het UDP-antwoord tegenhoudt, of een speaker die geen UPnP spreekt (een
+bluetooth- of kabelspeaker heeft geen netwerkadres en is van buitenaf niet te
+besturen).
+
+**Chromecast en Google Nest doen niet mee.** Die spreken geen UPnP maar castv2,
+een eigen protocol. Bovendien laat een Chromecast waarop iemand Spotify heeft
+gecast zich door een derde app niet besturen. Ziet de kassa iets van Google op
+het netwerk, dan zegt hij dat — dan weten we dat het de moeite waard is om erbij
+te bouwen.
+
+**Spotify Connect** zit er bewust niet in. Dat vraagt Premium, een inlog per
+kassa, en muziek in een bedrijfsruimte valt buiten een persoonlijk abonnement
+(los daarvan vraagt muziek in een publieke ruimte in Nederland Buma/Stemra en
+Sena). Dat is een beslissing, geen bouwwerk.
+
 ### Pinautomaat
 
 **Nu:** met de hand intoetsen. De kassa laat het bedrag groot in beeld zien, je
@@ -241,7 +275,7 @@ de Belastingdienst van een kassasysteem verwacht.
 npm run dev             # alleen de browser, op poort 5174
 npm run electron:dev    # Electron met live herladen
 npm run build           # controle + typecheck + bundel
-npm run selftest        # 142 controles: rekenwerk, nummers, afrekenen, kas, bon, versies
+npm run selftest        # 166 controles: rekenwerk, nummers, afrekenen, kas, bon, muziek
 npm run kern:check      # wijkt de gedeelde kern af van het dashboard?
 ```
 

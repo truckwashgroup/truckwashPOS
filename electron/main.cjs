@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, Menu, Notification } = require('elec
 const path = require('node:path')
 const escpos = require('./escpos.cjs')
 const terminal = require('./terminal.cjs')
+const muziek = require('./muziek.cjs')
 
 // dev = vite-server; anders wordt de gebouwde dist/ geladen
 const isDev = process.env.NODE_ENV === 'development'
@@ -173,6 +174,40 @@ ipcMain.handle('terminal:betaal', async (_e, opdracht) => {
 ipcMain.handle('terminal:afbreken', async (_e, opdracht) => {
   try {
     return await terminal.afbreken(opdracht ?? {})
+  } catch (e) {
+    return { ok: false, reden: String(e && e.message ? e.message : e) }
+  }
+})
+
+/* ---- muziek ---- */
+
+/*
+ * Alle drie geven een antwoord terug en gooien nooit. Een speaker die niet
+ * meewerkt mag het afrekenen niet in de weg staan -- er staat iemand te
+ * wachten met een vrachtwagen.
+ */
+ipcMain.handle('muziek:zoek', async () => {
+  try {
+    return await muziek.zoek()
+  } catch (e) {
+    return { apparaten: [], google: [], fout: String(e && e.message ? e.message : e) }
+  }
+})
+
+ipcMain.handle('muziek:stand', async (_e, apparaat) => {
+  try {
+    return await muziek.stand(apparaat ?? {})
+  } catch (e) {
+    return {
+      speelt: false, volume: null, gedempt: false, nummer: null,
+      fout: String(e && e.message ? e.message : e),
+    }
+  }
+})
+
+ipcMain.handle('muziek:bestuur', async (_e, { apparaat, actie, waarde }) => {
+  try {
+    return await muziek.bestuur(apparaat ?? {}, actie, waarde)
   } catch (e) {
     return { ok: false, reden: String(e && e.message ? e.message : e) }
   }

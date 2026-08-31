@@ -227,6 +227,21 @@ input, select, textarea { font: inherit; }
 }
 .knop.hoofd:hover:not(:disabled) { background: #ffcf2e; }
 
+/*
+  Een uitgeschakelde hoofdknop.
+
+  Merkgeel op 45% dekking wordt boven donker een modderig olijf, en dat leest
+  als kapot in plaats van als "nog niet". Dezelfde fout zat op de OK-toets van
+  het toetsenblok. Uitgeschakeld hoort hij eruit te zien als een knop die er
+  nog niet is, niet als een knop die stuk is.
+*/
+.knop.hoofd:disabled {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-3);
+  opacity: 1;
+}
+
 .knop.stil { background: transparent; }
 .knop.stil:hover:not(:disabled) { background: var(--surface); }
 

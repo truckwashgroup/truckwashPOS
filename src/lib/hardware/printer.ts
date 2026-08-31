@@ -26,6 +26,11 @@ interface DesktopBrug {
   openLade(p: PrinterConfig): Promise<PrintResultaat>
   pinBetaling(o: unknown): Promise<any>
   pinAfbreken(o: unknown): Promise<any>
+  /* Muziek. Zie hardware/muziek.ts; die controleert zelf of het er is, want
+     op een tablet bestaat deze brug niet. */
+  muziekZoeken?(): Promise<any>
+  muziekStand?(apparaat: unknown): Promise<any>
+  muziekBesturen?(apparaat: unknown, actie: string, waarde?: unknown): Promise<any>
 }
 
 declare global {

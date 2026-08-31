@@ -36,4 +36,10 @@ contextBridge.exposeInMainWorld('desktop', {
   /* --- betaalterminal --- */
   pinBetaling: (opdracht) => ipcRenderer.invoke('terminal:betaal', opdracht),
   pinAfbreken: (opdracht) => ipcRenderer.invoke('terminal:afbreken', opdracht),
+
+  /* --- muziek op het netwerk (UPnP) --- */
+  muziekZoeken: () => ipcRenderer.invoke('muziek:zoek'),
+  muziekStand: (apparaat) => ipcRenderer.invoke('muziek:stand', apparaat),
+  muziekBesturen: (apparaat, actie, waarde) =>
+    ipcRenderer.invoke('muziek:bestuur', { apparaat, actie, waarde }),
 })

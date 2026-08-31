@@ -84,11 +84,20 @@ const AFDRUKKEN = [
   { naam: 'aanmelden-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true },
   // Een kleine tablet in liggende stand: de maat waarop dingen gaan wringen.
   { naam: 'aanmelden-tablet', thema: 'donker', breedte: 1024, hoogte: 700, zaad: true },
+
+  // En de schermen waar iemand de hele dag naar kijkt. Het nummer is dat van
+  // de nepmedewerker uit ZAAD.
+  { naam: 'kassa-donker', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014' },
+  { naam: 'kassa-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014' },
+  { naam: 'klok', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Klok' },
+  { naam: 'kas', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kas' },
+  { naam: 'muziek', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Muziek' },
+  { naam: 'beheer', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Beheer' },
 ]
 
 const wacht = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function maak({ naam, thema, breedte, hoogte, zaad }) {
+async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
   const win = new BrowserWindow({
     width: breedte,
     height: hoogte,
@@ -130,6 +139,40 @@ async function maak({ naam, thema, breedte, hoogte, zaad }) {
   await win.loadFile(pagina)
   // Even laten staan: de app haalt zijn sessie uit IndexedDB en tekent daarna.
   await wacht(2500)
+
+  /*
+   * Aanmelden door het nummer echt in te toetsen.
+   *
+   * Wie er achter de kassa staat, staat in het geheugen en niet in de opslag --
+   * dat is met opzet, want het wisselt de hele dag. Dus zetten we het niet in
+   * de database maar tikken we het in, net als een medewerker: cijfers en dan
+   * Enter. Zo krijgen we ook de schermen achter het aanmelden in beeld.
+   */
+  if (nummer) {
+    for (const teken of String(nummer)) {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: teken })
+      win.webContents.sendInputEvent({ type: 'char', keyCode: teken })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: teken })
+      await wacht(60)
+    }
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+    await wacht(1200)
+  }
+
+  if (tab) {
+    const gelukt = await win.webContents.executeJavaScript(`
+      (() => {
+        const knop = [...document.querySelectorAll('.tab')]
+          .find((b) => b.textContent && b.textContent.includes(${JSON.stringify(tab)}))
+        if (!knop) return false
+        knop.click()
+        return true
+      })()
+    `)
+    if (!gelukt) console.log(`  (${naam}: tabblad "${tab}" niet gevonden)`)
+    await wacht(1200)
+  }
 
   const plaat = await win.webContents.capturePage()
   const bytes = plaat.toPNG()

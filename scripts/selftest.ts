@@ -273,6 +273,26 @@ check('een nummer met letters mag', nummerProbleem('TW-014') === null)
 check('vijfentwintig tekens is geen personeelsnummer',
   nummerProbleem('1'.repeat(25)) !== null)
 
+/* ---- wat het toetsenblok met een aanslag doet ----
+ *
+ * Hier zat een fout die je alleen vindt door het echt in te toetsen: er werden
+ * voorloopnullen weggehaald. Dus wie 014 intoetste, probeerde 14 en kreeg "dat
+ * nummer is niet bekend" -- zonder aanwijzing.
+ */
+
+const { toetsErbij } = await import('../src/components/Toetsenblok')
+
+check('een voorloopnul blijft staan', toetsErbij('0', '1', 24) === '01')
+check('en twee ook', toetsErbij('00', '7', 24) === '007')
+check('een gewoon nummer groeit gewoon', toetsErbij('01', '4', 24) === '014')
+// En dan het geval waar het om gaat: 014 intoetsen op het blok, en dat
+// vindt de wasser met nummer TW-014.
+const ingetoetst = toetsErbij(toetsErbij(toetsErbij('', '0', 24), '1', 24), '4', 24)
+check('wat je intoetst blijft 014', ingetoetst === '014', ingetoetst)
+check('en daarmee wordt de medewerker gevonden',
+  (await herkenOpNummer(ingetoetst)).ok)
+check('voller dan de maat gaat niet', toetsErbij('123', '4', 3) === '123')
+
 /* ---- herkennen ----
  *
  * De wasser staat in de cache met nummer TW-014. Drie manieren waarop iemand
@@ -660,10 +680,138 @@ try {
 check('een gesloten kas kan niet opnieuw dicht', alDicht.includes('al afgesloten'), alDicht)
 
 /* ================================================================== *
- *  9. De bon
+ *  9. Muziek: het uitlezen van wat een speaker terugstuurt
+ *
+ *  Zonder speaker is het netwerkdeel niet te testen. Wat wél te testen is, is
+ *  precies het deel dat stil fout gaat: het uitlezen van de XML die een
+ *  apparaat terugstuurt. Zit daar een fout in, dan staat er "onbekend" op het
+ *  scherm terwijl het apparaat het netjes vertelde.
  * ================================================================== */
 
-console.log('\n9. De bon')
+console.log('\n9. Muziek: uitlezen wat een speaker terugstuurt')
+
+const muziek = (await import('../electron/muziek.cjs')).default as any
+const { kopregels, tag, parseerApparaat, parseerNummer, envelop } =
+  (muziek._intern ?? muziek) as any
+
+/* ---- SSDP-antwoord ---- */
+
+const ssdp = [
+  'HTTP/1.1 200 OK',
+  'CACHE-CONTROL: max-age = 1800',
+  'LOCATION: http://192.168.1.42:1400/xml/device_description.xml',
+  'SERVER: Linux UPnP/1.0 Sonos/70.1-12345',
+  'ST: urn:schemas-upnp-org:device:ZonePlayer:1',
+  '', '',
+].join('\r\n')
+
+const kop = kopregels(ssdp)
+check('het adres uit een SSDP-antwoord',
+  kop.location === 'http://192.168.1.42:1400/xml/device_description.xml', kop.location)
+check('de kopregel is niet gevoelig voor hoofdletters',
+  Boolean(kop.server && kop.st))
+
+/* ---- de beschrijving van een Sonos ---- */
+
+const sonosXml = `<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <device>
+    <deviceType>urn:schemas-upnp-org:device:ZonePlayer:1</deviceType>
+    <friendlyName>192.168.1.42 - Sonos One SL</friendlyName>
+    <manufacturer>Sonos, Inc.</manufacturer>
+    <modelName>Sonos One SL</modelName>
+    <roomName>Balie</roomName>
+    <serviceList>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+        <controlURL>/MediaRenderer/AVTransport/Control</controlURL>
+      </service>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
+        <controlURL>/MediaRenderer/RenderingControl/Control</controlURL>
+      </service>
+    </serviceList>
+  </device>
+</root>`
+
+const sonos = parseerApparaat(sonosXml, 'http://192.168.1.42:1400/xml/device_description.xml')
+check('een Sonos wordt herkend', Boolean(sonos))
+// De ruimte, niet het model: "Balie" is aan een balie duidelijker dan
+// "Sonos One SL".
+check('de naam is de ruimte', sonos.naam === 'Balie', sonos?.naam)
+check('het merk staat erbij', sonos.merk.includes('Sonos'), sonos?.merk)
+check('het adres voor pauze is volledig gemaakt',
+  sonos.transportUrl === 'http://192.168.1.42:1400/MediaRenderer/AVTransport/Control',
+  sonos?.transportUrl)
+check('en het adres voor volume ook',
+  sonos.volumeUrl === 'http://192.168.1.42:1400/MediaRenderer/RenderingControl/Control',
+  sonos?.volumeUrl)
+
+/* ---- een apparaat waar we niets mee kunnen ---- */
+
+const routerXml = `<?xml version="1.0"?>
+<root><device>
+  <friendlyName>Internetmodem</friendlyName>
+  <serviceList>
+    <service>
+      <serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>
+      <controlURL>/upnp/control/wan</controlURL>
+    </service>
+  </serviceList>
+</device></root>`
+
+check('een modem zonder AVTransport valt af',
+  parseerApparaat(routerXml, 'http://192.168.1.1:5000/desc.xml') === null)
+
+/* ---- een speaker zonder volumebesturing ---- */
+
+const geenVolume = parseerApparaat(
+  sonosXml.replace(/<service>\s*<serviceType>urn:schemas-upnp-org:service:RenderingControl:1[\s\S]*?<\/service>/, ''),
+  'http://192.168.1.55:8080/desc.xml')
+check('een apparaat zonder volume wordt toch herkend', Boolean(geenVolume))
+check('en meldt dat het volume niet kan', geenVolume.volumeUrl === '')
+
+/* ---- wat er speelt ----
+ *
+ * De metadata is XML binnen XML: het apparaat stuurt een veld waarin de
+ * tekens zijn ontdubbeld. Wie die stap vergeet, leest niets uit en zet
+ * "onbekend" op het scherm.
+ */
+
+const positieXml = `<?xml version="1.0"?>
+<s:Envelope><s:Body><u:GetPositionInfoResponse>
+  <Track>3</Track>
+  <TrackDuration>0:03:42</TrackDuration>
+  <TrackMetaData>&lt;DIDL-Lite&gt;&lt;item&gt;&lt;dc:title&gt;Rondje Rotterdam&lt;/dc:title&gt;&lt;dc:creator&gt;De Vrachtwagens&lt;/dc:creator&gt;&lt;upnp:album&gt;Onderweg&lt;/upnp:album&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</TrackMetaData>
+  <RelTime>0:01:12</RelTime>
+</u:GetPositionInfoResponse></s:Body></s:Envelope>`
+
+const speelt = parseerNummer(positieXml)
+check('de titel komt eruit', speelt.titel === 'Rondje Rotterdam', speelt.titel)
+check('de artiest ook', speelt.artiest === 'De Vrachtwagens', speelt.artiest)
+check('het album ook', speelt.album === 'Onderweg', speelt.album)
+check('en hoe lang het nog duurt',
+  speelt.duur === '0:03:42' && speelt.positie === '0:01:12',
+  `${speelt.duur} / ${speelt.positie}`)
+
+const leeg = parseerNummer('<x><TrackDuration>NOT_IMPLEMENTED</TrackDuration></x>')
+check('een apparaat dat niets vertelt geeft leeg terug, geen onzin',
+  leeg.titel === '' && leeg.duur === '')
+
+/* ---- de envelop die we versturen ---- */
+
+const env = envelop(
+  'urn:schemas-upnp-org:service:RenderingControl:1', 'SetVolume',
+  { InstanceID: 0, Channel: 'Master', DesiredVolume: 25 })
+check('de envelop noemt de handeling', env.includes('<u:SetVolume'))
+check('en het bedrag', env.includes('<DesiredVolume>25</DesiredVolume>'))
+check('en sluit hem netjes af', env.includes('</u:SetVolume>'))
+
+/* ================================================================== *
+ *  10. De bon
+ * ================================================================== */
+
+console.log('\n10. De bon')
 
 const gegevens = await bonGegevens(bon1.bon.id)
 check('de bongegevens komen uit de cache', Boolean(gegevens))

@@ -14,6 +14,23 @@ import { Delete } from 'lucide-react'
  *     pinautomaat: 1250 wordt 12,50. Niemand toetst een komma in.
  * ------------------------------------------------------------------ */
 
+/**
+ * Een aanslag bij wat er staat.
+ *
+ * Los van het scherm gezet zodat de zelftest erbij kan, want hier zat een
+ * fout die niemand zou vinden: er stond `.replace(/^0+(?=\d)/, '')`, om
+ * voorloopnullen weg te halen. Bedoeld voor bedragen, waar het niets
+ * toevoegt -- die worden toch opgemaakt voordat ze in beeld komen.
+ *
+ * Voor een personeelsnummer is het wél iets: wie 014 intoetst kreeg 14, en
+ * dus "dat nummer is niet bekend" zonder enige aanwijzing waarom. Nu blijft
+ * staan wat iemand intikt.
+ */
+export function toetsErbij(waarde: string, teken: string, maxLengte: number): string {
+  if (waarde.length >= maxLengte) return waarde
+  return waarde + teken
+}
+
 interface Props {
   waarde: string
   onWaarde: (v: string) => void
@@ -32,9 +49,7 @@ export default function Toetsenblok({
   klaarTekst = 'OK', klaarUit, toetsenbord = true,
 }: Props) {
   function cijfer(c: string) {
-    if (waarde.length >= maxLengte) return
-    // Voorloopnullen hebben geen betekenis en maken het lezen lastiger.
-    onWaarde((waarde + c).replace(/^0+(?=\d)/, ''))
+    onWaarde(toetsErbij(waarde, c, maxLengte))
   }
 
   function wis() {
