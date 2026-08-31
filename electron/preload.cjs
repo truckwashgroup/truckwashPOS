@@ -42,4 +42,28 @@ contextBridge.exposeInMainWorld('desktop', {
   muziekStand: (apparaat) => ipcRenderer.invoke('muziek:stand', apparaat),
   muziekBesturen: (apparaat, actie, waarde) =>
     ipcRenderer.invoke('muziek:bestuur', { apparaat, actie, waarde }),
+
+  /* --- de kassa als speler: eigen bestanden en een tweede scherm --- */
+  spelerKiesMap: (vanaf) => ipcRenderer.invoke('speler:kiesMap', vanaf),
+  spelerLijstMap: (map) => ipcRenderer.invoke('speler:lijstMap', map),
+  spelerSchermen: () => ipcRenderer.invoke('speler:schermen'),
+  spelerVideoOpenen: (schermId) => ipcRenderer.invoke('speler:videoOpenen', schermId),
+  spelerVideoSluiten: () => ipcRenderer.invoke('speler:videoSluiten'),
+  spelerVideoStaatOpen: () => ipcRenderer.invoke('speler:videoStaatOpen'),
+  spelerVideoOpdracht: (opdracht) => ipcRenderer.invoke('speler:videoOpdracht', opdracht),
+
+  // Het videovenster luistert hiernaar; de kassa stuurt erop.
+  spelerOpVideoOpdracht: (cb) => {
+    const luister = (_e, opdracht) => cb(opdracht)
+    ipcRenderer.on('speler:video', luister)
+    return () => ipcRenderer.removeListener('speler:video', luister)
+  },
+
+  // En de andere kant op: het videovenster meldt dat een video klaar is.
+  spelerVideoKlaar: () => ipcRenderer.invoke('speler:videoKlaar'),
+  spelerOpVideoKlaar: (cb) => {
+    const luister = () => cb()
+    ipcRenderer.on('speler:videoKlaar', luister)
+    return () => ipcRenderer.removeListener('speler:videoKlaar', luister)
+  },
 })

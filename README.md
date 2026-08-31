@@ -222,6 +222,53 @@ kassa, en muziek in een bedrijfsruimte valt buiten een persoonlijk abonnement
 (los daarvan vraagt muziek in een publieke ruimte in Nederland Buma/Stemra en
 Sena). Dat is een beslissing, geen bouwwerk.
 
+### De kassa als speler (en bluetooth)
+
+Naast het bijsturen van een ander apparaat kan de kassa het ook **zelf spelen**.
+Dat onderscheid is de kern, want het bepaalt of bluetooth werkt:
+
+| | Wie is de bron | Bluetooth? |
+|---|---|---|
+| **Muziek** (bijsturen, UPnP) | een speaker op het netwerk | nee — daar valt niets te besturen |
+| **Speler** (zelf spelen) | de kassa | **ja** — Windows stuurt het geluid naar de box |
+
+Bij de Speler hoeft er niets bestuurd te worden: de kassa *is* de bron, dus
+pauze en volgende zijn gewoon knoppen. Waar het geluid uitkomt bepaalt Windows —
+de luidspreker van de pc, een kabel naar de versterker, of een gekoppelde
+bluetooth-box. Koppelen doe je één keer in Windows, bij Bluetooth-apparaten; de
+kassa hoeft daar niets van te weten.
+
+Drie bronnen:
+
+- **Muziek van een map.** Wijs één keer een map aan; de kassa kijkt twee mappen
+  diep. Werkt volledig offline. Speelt mp3, m4a, aac, flac, ogg, opus en wav —
+  precies wat Chromium ook echt kan weergeven, want een ruimere lijst levert
+  bestanden op die stil overgeslagen worden.
+- **Radiostream.** Een of meer adressen die je zelf toevoegt. Heeft internet
+  nodig, en stopt dus als de verbinding wegvalt — terwijl de rest van de kassa
+  doorwerkt. Dat staat er ook bij in het scherm.
+- **Video op een tweede scherm.** Een eigen venster dat op het tweede scherm
+  volledig scherm opengaat, met de video's uit dezelfde map. Standaard zonder
+  geluid, want anders klinkt het door de muziek heen.
+
+> **Video gaat niet over bluetooth.** Er staat wel een videoprofiel in de
+> bluetooth-specificatie, maar geen enkel apparaat dat je koopt gebruikt het.
+> Beeld gaat via HDMI naar een scherm, of via een Chromecast. Dat is geen
+> beperking van deze app.
+
+Twee dingen die in de bouw belangrijk waren:
+
+**Het geluidselement staat buiten React** (`src/store/useSpeler.ts`). Zet je een
+`<audio>` in een component, dan stopt de muziek zodra iemand naar een ander
+tabblad gaat — want dan wordt dat component afgebroken. Aan een kassa ga je de
+hele dag heen en weer tussen afrekenen en de klok, dus dat is onbruikbaar.
+
+**De speler mag alleen in de gekozen map kijken.** Bestanden gaan via een eigen
+`speler://`-adres naar de speler, en dat adres levert alleen uit wat onder een
+aangewezen map staat. Zonder die grens zou het scherm elk bestand op de schijf
+kunnen opvragen — en op dit apparaat staat ook een kassa-administratie. Vijf
+controles in de zelftest dekken die grens, inclusief de omweg met `..`.
+
 ### Pinautomaat
 
 **Nu:** met de hand intoetsen. De kassa laat het bedrag groot in beeld zien, je
@@ -288,9 +335,28 @@ de Belastingdienst van een kassasysteem verwacht.
 npm run dev             # alleen de browser, op poort 5174
 npm run electron:dev    # Electron met live herladen
 npm run build           # controle + typecheck + bundel
-npm run selftest        # 166 controles: rekenwerk, nummers, afrekenen, kas, bon, muziek
+npm run selftest        # 187 controles: rekenwerk, nummers, afrekenen, kas, bon, muziek, speler
 npm run kern:check      # wijkt de gedeelde kern af van het dashboard?
 ```
+
+### Zien wat er op het scherm staat
+
+```bash
+npm run afdruk                                    # alle schermen
+node scripts/schermafdruk.cjs --alleen=speler     # alleen wat je zoekt
+```
+
+Dit laat Electron zichzelf fotograferen: het inrichtscherm, het aanmeldscherm en
+de schermen daarachter (Kassa, Klok, Kas, Muziek, Speler, Beheer), in licht en
+donker, op 1366x850 en 1024x700. Het meldt zich onderweg zelf aan door een
+personeelsnummer in te toetsen, en zet daarvoor nepgegevens in IndexedDB.
+
+Dat is geen luxe. Drie fouten zijn hiermee gevonden en niet met code lezen: een
+knop die over de rand van een kaart lag, een uitgeschakelde knop die modderig
+olijf werd, en een toetsenblok dat voorloopnullen weghaalde — waardoor
+personeelsnummer 014 stil 14 werd en niemand met een nul vooraan kon inloggen.
+
+De afdrukken komen in `schermafdrukken/`, buiten git.
 
 ### De gedeelde kern
 

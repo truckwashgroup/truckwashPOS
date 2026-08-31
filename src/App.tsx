@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Clock, CloudOff, Download, LogOut, Moon, Music, Receipt, RefreshCw, Settings,
-  ShoppingCart, Sun, Wallet,
+  Clock, CloudOff, Download, ListMusic, LogOut, Moon, Music, Receipt,
+  RefreshCw, Settings, ShoppingCart, Sun, Wallet,
 } from 'lucide-react'
 import logo from './assets/kassa-icoon.png'
 import Toasts from './components/Toasts'
@@ -15,6 +15,8 @@ import Inrichten from './screens/Inrichten'
 import Kassa from './screens/Kassa'
 import Klok from './screens/Klok'
 import Muziek from './screens/Muziek'
+import Speler from './screens/Speler'
+import VideoScherm from './components/VideoScherm'
 import { time } from './lib/format'
 import { useTheme } from './lib/theme'
 import { huidigeRegister } from './lib/kassa'
@@ -22,6 +24,7 @@ import { startSyncEngine, useSync } from './lib/sync'
 import { useUpdates } from './lib/updates'
 import { startAfmeldKlok, useAuth } from './store/useAuth'
 import { useMandje } from './store/useMandje'
+import { useSpeler, videoIsKlaar } from './store/useSpeler'
 
 /* ------------------------------------------------------------------ *
  *  Het raamwerk
@@ -38,9 +41,29 @@ import { useMandje } from './store/useMandje'
  *  inklokken hoeft niet eerst kassabediende te worden.
  * ------------------------------------------------------------------ */
 
-type Blad = 'kassa' | 'klok' | 'bonnen' | 'kas' | 'muziek' | 'beheer'
+type Blad = 'kassa' | 'klok' | 'bonnen' | 'kas' | 'muziek' | 'speler' | 'beheer'
+
+/**
+ * Dit venster is het tweede scherm, niet de kassa.
+ *
+ * Het videovenster laadt dezelfde bundel met ?scherm=video erachter. Zo is er
+ * één app om te onderhouden in plaats van twee, en die vlag is het enige
+ * verschil.
+ */
+function isVideoVenster(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('scherm') === 'video'
+  } catch {
+    return false
+  }
+}
 
 export default function App() {
+  if (isVideoVenster()) return <VideoScherm />
+  return <Kassascherm />
+}
+
+function Kassascherm() {
   const { apparaat, operator, booting, restore, meldAf } = useAuth()
   const mandje = useMandje()
   const updates = useUpdates()
@@ -54,7 +77,14 @@ export default function App() {
     void restore()
     void mandje.herstel()
     void updates.init()
+    void useSpeler.getState().herstel()
     startAfmeldKlok()
+
+    /*
+     * Het videovenster meldt dat een video klaar is. Dat besluit valt hier,
+     * want de lijst staat hier -- niet in het venster dat alleen weergeeft.
+     */
+    return window.desktop?.spelerOpVideoKlaar?.(videoIsKlaar)
   }, [])
 
   useEffect(() => {
@@ -124,6 +154,7 @@ export default function App() {
         {!alleenKlok && blad === 'bonnen' && <Bonnen register={register} />}
         {!alleenKlok && blad === 'kas' && <Dagafsluiting register={register} />}
         {!alleenKlok && blad === 'muziek' && <Muziek />}
+        {!alleenKlok && blad === 'speler' && <Speler />}
         {!alleenKlok && blad === 'beheer' && <Beheer register={register} />}
       </div>
 
@@ -164,6 +195,7 @@ function Balk({
     { id: 'bonnen', label: 'Bonnen', icoon: <Receipt size={16} /> },
     { id: 'kas', label: 'Kas', icoon: <Wallet size={16} /> },
     { id: 'muziek', label: 'Muziek', icoon: <Music size={16} /> },
+    { id: 'speler', label: 'Speler', icoon: <ListMusic size={16} /> },
     { id: 'beheer', label: 'Beheer', icoon: <Settings size={16} /> },
   ]
 

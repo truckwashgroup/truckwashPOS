@@ -808,10 +808,101 @@ check('en het bedrag', env.includes('<DesiredVolume>25</DesiredVolume>'))
 check('en sluit hem netjes af', env.includes('</u:SetVolume>'))
 
 /* ================================================================== *
- *  10. De bon
+ *  10. De speler: volgorde en welke bestanden meedoen
+ *
+ *  De kassa als bron. Zonder muziekmap is het afspelen niet te testen; de
+ *  volgorde wél, en dat is precies het rekenwerk dat één keer per honderd
+ *  nummers fout gaat en dan een uur zoeken kost.
  * ================================================================== */
 
-console.log('\n10. De bon')
+console.log('\n10. De speler')
+
+const { volgendeIndex, vorigeIndex } = await import('../src/store/useSpeler')
+
+/* ---- op volgorde ---- */
+
+check('van 0 naar 1', volgendeIndex(0, 5, false) === 1)
+check('en van de laatste terug naar de eerste', volgendeIndex(4, 5, false) === 0)
+check('vorige van 0 is de laatste', vorigeIndex(0, 5) === 4)
+check('vorige van 3 is 2', vorigeIndex(3, 5) === 2)
+
+/* ---- één nummer, of geen ---- */
+
+check('met één nummer blijf je erop staan', volgendeIndex(0, 1, false) === 0)
+check('en met shuffle ook', volgendeIndex(0, 1, true) === 0)
+check('een lege lijst geeft geen onzin',
+  volgendeIndex(0, 0, false) === 0 && vorigeIndex(0, 0) === 0)
+
+/* ---- shuffle ----
+ *
+ * Nooit twee keer hetzelfde nummer achter elkaar. Dat is geen willekeur maar
+ * een keuze: hetzelfde nummer opnieuw voelt als een kapotte speler, niet als
+ * toeval.
+ */
+
+// Toeval nabootsen zodat het altijd hetzelfde nummer wil kiezen.
+const altijdDrie = () => 3 / 10
+check('shuffle kiest niet het nummer dat al speelt',
+  volgendeIndex(3, 10, true, altijdDrie) !== 3,
+  String(volgendeIndex(3, 10, true, altijdDrie)))
+
+let zelfde = 0
+for (let i = 0; i < 400; i++) {
+  if (volgendeIndex(i % 8, 8, true) === i % 8) zelfde++
+}
+check('en dat geldt over vierhonderd keer', zelfde === 0, String(zelfde))
+
+let binnenBereik = true
+for (let i = 0; i < 400; i++) {
+  const n = volgendeIndex(i % 8, 8, true)
+  if (n < 0 || n > 7) binnenBereik = false
+}
+check('shuffle blijft binnen de lijst', binnenBereik)
+
+/* ---- welke bestanden meedoen ----
+ *
+ * Alleen wat Chromium ook echt kan weergeven. Een ruimere lijst levert
+ * bestanden op die stil overgeslagen worden, en dan denkt iemand dat de speler
+ * stuk is.
+ */
+
+const spelerModule = (await import('../electron/speler.cjs')).default as any
+const { GELUID, BEELD } = (spelerModule._intern ?? spelerModule) as any
+
+check('mp3 doet mee', GELUID.includes('.mp3'))
+check('flac en opus ook', GELUID.includes('.flac') && GELUID.includes('.opus'))
+check('mp4 en webm doen mee als beeld', BEELD.includes('.mp4') && BEELD.includes('.webm'))
+check('wma doet niet mee (Chromium kan het niet)', !GELUID.includes('.wma'))
+check('mkv doet niet mee (soms wel, soms niet, en dat is erger)',
+  !BEELD.includes('.mkv'))
+check('geluid en beeld overlappen niet',
+  GELUID.every((e: string) => !BEELD.includes(e)))
+
+/* ---- alleen uit de gekozen map ----
+ *
+ * Zonder deze grens zou het scherm elk bestand op de schijf kunnen opvragen
+ * via het speler://-adres. Dat is precies het soort gat dat je niet wil op een
+ * apparaat waar ook een kassa-administratie op staat.
+ */
+
+const { magGelezenWorden, toegestaneMappen } = (spelerModule._intern ?? spelerModule) as any
+
+check('zonder gekozen map mag niets',
+  !magGelezenWorden('C:\\Windows\\System32\\config\\SAM'))
+
+toegestaneMappen.add('C:\\muziek')
+check('uit de gekozen map mag het', magGelezenWorden('C:\\muziek\\nummer.mp3'))
+check('uit een onderliggende map ook',
+  magGelezenWorden('C:\\muziek\\artiest\\nummer.mp3'))
+check('van elders niet', !magGelezenWorden('C:\\Windows\\notepad.exe'))
+check('en met een omweg naar boven ook niet',
+  !magGelezenWorden('C:\\muziek\\..\\Windows\\notepad.exe'))
+
+/* ================================================================== *
+ *  11. De bon
+ * ================================================================== */
+
+console.log('\n11. De bon')
 
 const gegevens = await bonGegevens(bon1.bon.id)
 check('de bongegevens komen uit de cache', Boolean(gegevens))

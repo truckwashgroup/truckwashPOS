@@ -31,6 +31,17 @@ interface DesktopBrug {
   muziekZoeken?(): Promise<any>
   muziekStand?(apparaat: unknown): Promise<any>
   muziekBesturen?(apparaat: unknown, actie: string, waarde?: unknown): Promise<any>
+  /* De speler. Zie hardware/speler.ts. */
+  spelerKiesMap?(vanaf: string | null): Promise<any>
+  spelerLijstMap?(map: string): Promise<any>
+  spelerSchermen?(): Promise<any>
+  spelerVideoOpenen?(schermId?: string): Promise<any>
+  spelerVideoSluiten?(): Promise<any>
+  spelerVideoStaatOpen?(): Promise<boolean>
+  spelerVideoOpdracht?(opdracht: unknown): Promise<any>
+  spelerOpVideoOpdracht?(cb: (o: any) => void): () => void
+  spelerVideoKlaar?(): Promise<void>
+  spelerOpVideoKlaar?(cb: () => void): () => void
 }
 
 declare global {

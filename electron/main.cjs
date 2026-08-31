@@ -1,11 +1,19 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, Notification } = require('electron')
 const path = require('node:path')
-const escpos = require('./escpos.cjs')
-const terminal = require('./terminal.cjs')
-const muziek = require('./muziek.cjs')
+const speler = require('./speler.cjs')
+const ipc = require('./ipc.cjs')
 
 // dev = vite-server; anders wordt de gebouwde dist/ geladen
 const isDev = process.env.NODE_ENV === 'development'
+
+/*
+ * Het speler://-schema aanmelden.
+ *
+ * Moet hier, boven alles: Electron neemt schema's alleen aan voordat de app
+ * klaar is. Doe je het later, dan werkt het stil niet -- de speler krijgt dan
+ * "onbekend adres" en er is niets aan te zien.
+ */
+speler.meldSchemaAan()
 let mainWindow = null
 let autoUpdater = null
 
@@ -113,105 +121,15 @@ ipcMain.handle('update:install', () => {
   if (autoUpdater) autoUpdater.quitAndInstall(false, true)
 })
 
-ipcMain.handle('notify:show', (_e, { title, body }) => {
-  if (!Notification.isSupported()) return false
-  const n = new Notification({
-    title: String(title ?? 'Truckwash1 Kassa'),
-    body: String(body ?? ''),
-    silent: false,
-  })
-  n.on('click', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
-  n.show()
-  return true
-})
-
-/* ---- bonprinter en lade ---- */
-
 /*
- * Een mislukte afdruk is geen mislukte verkoop. De bon staat al in de kassa;
- * afdrukken kan opnieuw. Daarom geeft dit nooit een uitzondering terug maar
- * altijd een antwoord waarin staat wat er misging -- de kassa kan dan door.
+ * De handlers voor de bonprinter, de betaalterminal, de muziek en de speler
+ * staan in ipc.cjs. Ze worden hieronder aangemeld, zodra de app klaar is.
+ *
+ * Waarom apart: het script dat schermafdrukken maakt start zijn eigen
+ * hoofdproces en laadt dit bestand niet. Twee lijsten met dezelfde handlers
+ * lopen uit elkaar, en dan werkt de app wel en de afdruk niet -- of erger,
+ * omgekeerd.
  */
-ipcMain.handle('printer:bon', async (_e, { opdrachten, printer, ladeOpen }) => {
-  try {
-    return await escpos.printBon(opdrachten ?? [], printer ?? {}, { ladeOpen: Boolean(ladeOpen) })
-  } catch (e) {
-    return { ok: false, reden: String(e && e.message ? e.message : e) }
-  }
-})
-
-ipcMain.handle('printer:proef', async (_e, { printer }) => {
-  try {
-    return await escpos.proefBon(printer ?? {})
-  } catch (e) {
-    return { ok: false, reden: String(e && e.message ? e.message : e) }
-  }
-})
-
-ipcMain.handle('lade:open', async (_e, { printer }) => {
-  try {
-    return await escpos.openLade(printer ?? {})
-  } catch (e) {
-    return { ok: false, reden: String(e && e.message ? e.message : e) }
-  }
-})
-
-/* ---- betaalterminal ---- */
-
-ipcMain.handle('terminal:betaal', async (_e, opdracht) => {
-  try {
-    return await terminal.betaal(opdracht ?? {})
-  } catch (e) {
-    return { ok: false, reden: String(e && e.message ? e.message : e) }
-  }
-})
-
-ipcMain.handle('terminal:afbreken', async (_e, opdracht) => {
-  try {
-    return await terminal.afbreken(opdracht ?? {})
-  } catch (e) {
-    return { ok: false, reden: String(e && e.message ? e.message : e) }
-  }
-})
-
-/* ---- muziek ---- */
-
-/*
- * Alle drie geven een antwoord terug en gooien nooit. Een speaker die niet
- * meewerkt mag het afrekenen niet in de weg staan -- er staat iemand te
- * wachten met een vrachtwagen.
- */
-ipcMain.handle('muziek:zoek', async () => {
-  try {
-    return await muziek.zoek()
-  } catch (e) {
-    return { apparaten: [], google: [], fout: String(e && e.message ? e.message : e) }
-  }
-})
-
-ipcMain.handle('muziek:stand', async (_e, apparaat) => {
-  try {
-    return await muziek.stand(apparaat ?? {})
-  } catch (e) {
-    return {
-      speelt: false, volume: null, gedempt: false, nummer: null,
-      fout: String(e && e.message ? e.message : e),
-    }
-  }
-})
-
-ipcMain.handle('muziek:bestuur', async (_e, { apparaat, actie, waarde }) => {
-  try {
-    return await muziek.bestuur(apparaat ?? {}, actie, waarde)
-  } catch (e) {
-    return { ok: false, reden: String(e && e.message ? e.message : e) }
-  }
-})
 
 /* ------------------------------------------------------------------ */
 /* Lifecycle                                                           */
@@ -250,6 +168,16 @@ if (!gotLock) {
         },
       ])
     )
+    // Nu de app klaar is, mag het speler://-schema echt bestanden uitleveren.
+    speler.koppelSchema()
+
+    ipc.registreer({
+      hoofdvenster: () => mainWindow,
+      paginaAdres: () => (isDev
+        ? 'http://localhost:5174'
+        : path.join(__dirname, '..', 'dist', 'index.html')),
+    })
+
     createWindow()
     initAutoUpdater()
 

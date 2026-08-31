@@ -18,6 +18,9 @@ const { app, BrowserWindow } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 
+const speler = require(path.join(__dirname, '..', 'electron', 'speler.cjs'))
+const ipc = require(path.join(__dirname, '..', 'electron', 'ipc.cjs'))
+
 const WORTEL = path.resolve(__dirname, '..')
 const DOEL = path.join(WORTEL, 'schermafdrukken')
 
@@ -32,7 +35,11 @@ const DOEL = path.join(WORTEL, 'schermafdrukken')
  * Alleen voor afdrukken. Het gaat naar een aparte sessie per afdruk, dus het
  * raakt de echte kassa op dit apparaat niet aan.
  */
+const MUZIEKMAP = path.join(WORTEL, 'schermafdrukken', 'proefmuziek')
+
 const ZAAD = `
+const MUZIEKMAP = ${JSON.stringify(MUZIEKMAP)}
+
 new Promise((klaar) => {
   const verzoek = indexedDB.open('truckwash-kassa')
   verzoek.onsuccess = () => {
@@ -66,6 +73,8 @@ new Promise((klaar) => {
       lastSeq: 0, active: true, updatedAt: nu,
     })
     t.objectStore('meta').put({ key: 'registerId', value: 'reg_demo' })
+    // De proefmuziekmap, zodat het Speler-scherm niet leeg in beeld komt.
+    t.objectStore('meta').put({ key: 'spelerMap', value: MUZIEKMAP })
     t.oncomplete = () => {
       localStorage.setItem('kassa.sessie', JSON.stringify({ userId: 'u_demo', at: nu }))
       klaar(true)
@@ -93,7 +102,13 @@ const AFDRUKKEN = [
   { naam: 'kas', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kas' },
   { naam: 'muziek', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Muziek' },
   { naam: 'beheer', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Beheer' },
+  { naam: 'speler', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },
+  { naam: 'speler-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },
 ]
+
+// Hetzelfde als in main.cjs: het speler://-schema moet aangemeld worden
+// voordat de app klaar is, anders komen bestanden er niet door.
+speler.meldSchemaAan()
 
 const wacht = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -114,6 +129,7 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
     },
   })
   win.setMenuBarVisibility(false)
+  huidigVenster = win
 
   /*
    * De themakeuze staat in localStorage, en die moet er staan vóórdat de app
@@ -198,6 +214,10 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
   console.log(`  ${naam.padEnd(22)} ${breedte}x${hoogte}  ${kb.toFixed(0)} kB`)
 
   win.destroy()
+  huidigVenster = null
+  // Chromium heeft even nodig na het weggooien van een venster; zonder deze
+  // pauze tekent het volgende soms niets.
+  await wacht(400)
 }
 
 /*
@@ -209,10 +229,35 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
  */
 app.on('window-all-closed', () => {})
 
+/** Het venster van de afdruk die nu gemaakt wordt. */
+let huidigVenster = null
+
 app.whenReady().then(async () => {
+  speler.koppelSchema()
+
+  /*
+   * Dezelfde handlers als de echte app. Zonder dit krijgt het scherm
+   * "No handler registered" terug op alles wat het aan de brug vraagt, en dan
+   * staat er op de afdruk iets anders dan in het echt -- precies wat je met
+   * een afdruk wilde voorkomen.
+   */
+  ipc.registreer({
+    hoofdvenster: () => huidigVenster,
+    paginaAdres: () => path.join(WORTEL, 'dist', 'index.html'),
+  })
+
   fs.mkdirSync(DOEL, { recursive: true })
   console.log('\nSchermafdrukken\n')
-  for (const opdracht of AFDRUKKEN) {
+
+  // node scripts/schermafdruk.cjs --alleen=speler
+  const filter = (process.argv.find((a) => a.startsWith('--alleen=')) || '')
+    .slice('--alleen='.length)
+
+  const lijst = filter
+    ? AFDRUKKEN.filter((a) => a.naam.includes(filter))
+    : AFDRUKKEN
+
+  for (const opdracht of lijst) {
     try {
       await maak(opdracht)
     } catch (e) {
