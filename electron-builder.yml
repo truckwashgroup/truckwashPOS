@@ -1,0 +1,58 @@
+appId: nl.truckwash1group.kassa
+productName: Truckwash1 Kassa
+copyright: Copyright © Truckwash1 Group
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # Geen spaties in de bestandsnaam. De productnaam bevat er een, en GitHub
+  # maakt daar bij het uploaden een punt van -- terwijl electron-builder in
+  # latest.yml een streepje schrijft. Dan zoekt de updater een bestand dat niet
+  # bestaat en mislukt de download zonder zichtbare fout.
+  artifactName: Truckwash1-Kassa-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+
+  # Installeren voor alle gebruikers, in Program Files.
+  #
+  # Stond eerst op false (per gebruiker). Daardoor draaide de installer zonder
+  # beheerdersrechten, terwijl de bestaande installatie in Program Files
+  # stond -- en dan mag hij de oude bestanden niet verwijderen. Dat gaf bij
+  # het bijwerken "Het deinstalleren van oude applicatiebestanden is mislukt".
+  #
+  # Gevolg: bij een update vraagt Windows eenmalig om toestemming. Dat hoort
+  # zo bij een installatie voor alle gebruikers.
+  perMachine: true
+
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Truckwash1 Kassa
+
+  # Sluit een draaiende app af voordat we bestanden vervangen.
+  include: build/installer.nsh
+
+# Auto-update kanaal.
+#
+# De app kijkt bij het opstarten en elk half uur of er een nieuwere release op
+# GitHub staat. Publiceren doe je met: npm run electron:publish
+# (daarvoor heb je een GH_TOKEN nodig met "repo"-rechten).
+#
+# Belangrijk: verhoog eerst het version-veld in package.json. Daar vergelijkt
+# de updater op.
+publish:
+  - provider: github
+    owner: truckwashgroup
+    repo: truckwashPOS
+    releaseType: release

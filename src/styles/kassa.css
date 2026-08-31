@@ -1,0 +1,701 @@
+/* ==================================================================
+   Truckwash1 Kassa -- vormgeving
+
+   Dezelfde kleuren als de wasstraat-app, maar een andere maatvoering.
+   Een dashboard wordt gelezen; een kassa wordt aangetikt, vaak met natte
+   of koude handen, staand, met iemand ervoor die wacht. Daarom:
+
+     * knoppen van minstens 56 pixels hoog
+     * bedragen groot en in cijfers die niet op elkaar lijken
+     * één ding per scherm, geen uitklapbare lagen
+     * de belangrijkste knop rechtsonder, waar de duim al is
+   ================================================================== */
+
+:root {
+  --bg:            #070c16;
+  --bg-2:          #0b1220;
+  --surface:       #111a2b;
+  --surface-2:     #16223a;
+  --surface-3:     #1d2c48;
+  --line:          #22314f;
+  --line-soft:     #1a2740;
+
+  --text:          #e8eefc;
+  --text-2:        #a3b2ce;
+  --text-3:        #6b7d9e;
+
+  /* Merkkleuren uit het logo: geel #F8C010 */
+  --brand:         #f8c010;
+  --brand-2:       #d99b0a;
+  --on-brand:      #14202f;
+  --accent:        #58b6f5;
+
+  --ok:            #35d07f;
+  --warn:          #f5b544;
+  --danger:        #f4685f;
+  --info:          #7aa2ff;
+
+  --radius:        14px;
+  --radius-sm:     9px;
+  --radius-lg:     22px;
+
+  --shadow:        0 10px 30px rgba(0, 0, 0, .45);
+  --shadow-sm:     0 3px 12px rgba(0, 0, 0, .3);
+
+  --tint-brand:    rgba(248, 192, 16, .15);
+  --line-brand:    rgba(248, 192, 16, .34);
+  --text-brand:    #ffdc7a;
+
+  --tint-ok:       rgba(53, 208, 127, .14);
+  --line-ok:       rgba(53, 208, 127, .34);
+  --text-ok:       #8ff0bd;
+
+  --tint-warn:     rgba(245, 181, 68, .14);
+  --line-warn:     rgba(245, 181, 68, .34);
+  --text-warn:     #ffd894;
+
+  --tint-danger:   rgba(244, 104, 95, .14);
+  --line-danger:   rgba(244, 104, 95, .34);
+  --text-danger:   #ffb3ad;
+
+  --tint-info:     rgba(122, 162, 255, .14);
+  --line-info:     rgba(122, 162, 255, .32);
+  --text-info:     #b6c9ff;
+
+  --safe-top:      env(safe-area-inset-top, 0px);
+  --safe-bottom:   env(safe-area-inset-bottom, 0px);
+
+  --raak:          56px;   /* kleinste knop die je staand raakt */
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(1200px 700px at 100% 0%, rgba(248, 192, 16, .06), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Een kassa scrollt niet per ongeluk mee als iemand een tegel aantikt. */
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+/* Bedragen: cijfers die alle dezelfde breedte hebben, zodat een kolom
+   bedragen recht onder elkaar staat en niet gaat dansen bij het typen. */
+.bedrag, input[type='number'], .cijfers {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+button { font: inherit; color: inherit; }
+input, select, textarea { font: inherit; }
+
+/* ==================================================================
+   Raamwerk
+   ================================================================== */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-top: var(--safe-top);
+}
+
+.balk {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(11, 18, 32, .82);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.balk .merk {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+  letter-spacing: .2px;
+}
+
+.balk .merk img { height: 26px; width: auto; border-radius: 5px; }
+
+.balk .rek { flex: 1; }
+
+.tabs { display: flex; gap: 6px; }
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 42px;
+  padding: 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab:hover { background: var(--surface-2); color: var(--text); }
+
+.tab.aan {
+  background: var(--tint-brand);
+  border-color: var(--line-brand);
+  color: var(--text-brand);
+  font-weight: 600;
+}
+
+.werkvlak {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.paneel {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+/* ==================================================================
+   Pillen en labels
+   ================================================================== */
+
+.pil {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.pil.ok     { background: var(--tint-ok);     border-color: var(--line-ok);     color: var(--text-ok); }
+.pil.warn   { background: var(--tint-warn);   border-color: var(--line-warn);   color: var(--text-warn); }
+.pil.fout   { background: var(--tint-danger); border-color: var(--line-danger); color: var(--text-danger); }
+.pil.info   { background: var(--tint-info);   border-color: var(--line-info);   color: var(--text-info); }
+.pil.merk   { background: var(--tint-brand);  border-color: var(--line-brand);  color: var(--text-brand); }
+
+/* ==================================================================
+   Knoppen
+   ================================================================== */
+
+.knop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: var(--raak);
+  padding: 0 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .06s ease, background .14s ease, border-color .14s ease;
+}
+
+.knop:hover:not(:disabled) { background: var(--surface-3); }
+.knop:active:not(:disabled) { transform: scale(.985); }
+
+.knop:disabled { opacity: .45; cursor: not-allowed; }
+
+.knop.hoofd {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+  font-size: 17px;
+}
+.knop.hoofd:hover:not(:disabled) { background: #ffcf2e; }
+
+.knop.stil { background: transparent; }
+.knop.stil:hover:not(:disabled) { background: var(--surface); }
+
+.knop.gevaar {
+  background: var(--tint-danger);
+  border-color: var(--line-danger);
+  color: var(--text-danger);
+}
+
+.knop.groen {
+  background: var(--tint-ok);
+  border-color: var(--line-ok);
+  color: var(--text-ok);
+}
+
+.knop.klein { min-height: 40px; padding: 0 13px; font-size: 13.5px; border-radius: 10px; }
+.knop.breed { width: 100%; }
+.knop.groot { min-height: 72px; font-size: 19px; }
+
+/* ==================================================================
+   Velden
+   ================================================================== */
+
+.veld { display: flex; flex-direction: column; gap: 6px; }
+
+.veld > label { font-size: 12.5px; color: var(--text-3); font-weight: 600; }
+
+.veld input, .veld select, .veld textarea {
+  min-height: 48px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--bg-2);
+  color: var(--text);
+  outline: none;
+  user-select: text;
+}
+
+.veld input:focus, .veld select:focus, .veld textarea:focus {
+  border-color: var(--line-brand);
+  box-shadow: 0 0 0 3px rgba(248, 192, 16, .12);
+}
+
+.veld .hint { font-size: 12px; color: var(--text-3); }
+
+/* ==================================================================
+   Kaarten
+   ================================================================== */
+
+.kaart {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.kaart > h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.kaart > p.uitleg {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-3);
+  max-width: 62ch;
+}
+
+.rooster {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
+
+/* ==================================================================
+   Kassascherm
+   ================================================================== */
+
+.kassa {
+  display: grid;
+  grid-template-columns: minmax(340px, 30%) 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .kassa { grid-template-columns: 1fr; }
+  .kassa .bonkant { display: none; }
+  .kassa.bonOpen .bonkant { display: flex; }
+  .kassa.bonOpen .keuzekant { display: none; }
+}
+
+.bonkant {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: rgba(17, 26, 43, .55);
+}
+
+.bonkant .kop {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bonkant .regels { flex: 1; overflow: auto; padding: 6px; min-height: 0; }
+
+.bonregel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 10px 10px;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.bonregel:hover { background: var(--surface-2); }
+.bonregel.aan { background: var(--tint-brand); }
+
+.bonregel .naam { font-weight: 600; }
+.bonregel .onder { grid-column: 1; font-size: 12.5px; color: var(--text-3); }
+.bonregel .prijs { grid-row: 1 / span 2; align-self: center; font-weight: 700; }
+
+.bonkant .voet {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px calc(12px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(7, 12, 22, .6);
+}
+
+.totaalrij {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.totaalrij .label { color: var(--text-3); font-size: 13px; }
+.totaalrij.groot .label { color: var(--text-2); font-size: 15px; font-weight: 600; }
+.totaalrij.groot .waarde { font-size: 30px; font-weight: 800; letter-spacing: -.5px; }
+
+/* ---- de keuzekant: tegels ---- */
+
+.keuzekant {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.keuzekant .kop {
+  padding: 12px 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+}
+
+.keuzekant .inhoud { flex: 1; overflow: auto; padding: 14px; min-height: 0; }
+
+.tegels {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+}
+
+.tegel {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 92px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: transform .06s ease, background .14s ease;
+}
+
+.tegel:hover { background: var(--surface-2); }
+.tegel:active { transform: scale(.98); }
+
+.tegel .naam { font-weight: 600; line-height: 1.25; }
+.tegel .prijs { font-weight: 800; font-size: 17px; color: var(--text-brand); }
+.tegel .sub { font-size: 12px; color: var(--text-3); }
+
+.tegel.wasbeurt { border-color: var(--line-info); background: var(--tint-info); }
+.tegel.strippenkaart, .tegel.abonnement {
+  border-color: var(--line-brand);
+  background: var(--tint-brand);
+}
+
+.groepen { display: flex; gap: 7px; flex-wrap: wrap; }
+
+.groep {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.groep.aan { background: var(--surface-3); color: var(--text); font-weight: 600; }
+
+/* ==================================================================
+   Toetsenblok
+   ================================================================== */
+
+.toetsen {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 330px;
+}
+
+.toets {
+  min-height: 68px;
+  font-size: 24px;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.toets:hover { background: var(--surface-3); }
+.toets:active { transform: scale(.97); }
+.toets.wis { background: var(--tint-danger); border-color: var(--line-danger); color: var(--text-danger); font-size: 17px; }
+.toets.klaar { background: var(--brand); border-color: var(--brand); color: var(--on-brand); font-size: 17px; }
+
+.codevakjes { display: flex; gap: 10px; justify-content: center; }
+
+.codevakje {
+  width: 34px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+.codevakje.vol { border-color: var(--line-brand); color: var(--text-brand); }
+
+/* ==================================================================
+   Bonweergave
+   ================================================================== */
+
+.bonpapier {
+  background: #f7f7f4;
+  color: #14202f;
+  border-radius: 8px;
+  padding: 18px 16px;
+  font: 13px/1.5 'Cascadia Mono', 'Consolas', 'SF Mono', ui-monospace, monospace;
+  white-space: pre-wrap;
+  max-width: 420px;
+  user-select: text;
+  box-shadow: var(--shadow);
+}
+
+/* ==================================================================
+   Dialoog
+   ================================================================== */
+
+.sluier {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 7, 14, .72);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 50;
+  animation: opkomen .14s ease;
+}
+
+.dialoog {
+  width: min(680px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.dialoog.wijd { width: min(1000px, 100%); }
+
+.dialoog > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.dialoog > header h2 { margin: 0; font-size: 19px; }
+
+@keyframes opkomen { from { opacity: 0 } to { opacity: 1 } }
+
+/* ==================================================================
+   Lijsten
+   ================================================================== */
+
+.lijst { display: flex; flex-direction: column; gap: 8px; }
+
+.lijstrij {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.lijstrij:hover { background: var(--surface-2); }
+.lijstrij .rek { flex: 1; min-width: 0; }
+.lijstrij .titel { font-weight: 600; }
+.lijstrij .onder { font-size: 12.5px; color: var(--text-3); }
+
+.leeg {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+table.tabel { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.tabel th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+table.tabel td { padding: 9px 10px; border-bottom: 1px solid var(--line-soft); }
+table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ==================================================================
+   Meldingen
+   ================================================================== */
+
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: intoast .18s ease;
+}
+
+.toast.ok    { border-color: var(--line-ok); }
+.toast.warn  { border-color: var(--line-warn); }
+.toast.error { border-color: var(--line-danger); }
+
+@keyframes intoast {
+  from { opacity: 0; transform: translateX(30px) }
+  to   { opacity: 1; transform: none }
+}
+
+/* ==================================================================
+   Inrichten en aanmelden
+   ================================================================== */
+
+.midden {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 24px;
+}
+
+.midden .doos {
+  width: min(460px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 26px;
+  box-shadow: var(--shadow);
+}
+
+.midden .doos.wijd { width: min(760px, 100%); }
+
+.midden h1 { margin: 0 0 6px; font-size: 22px; }
+.midden .onder { margin: 0 0 20px; color: var(--text-3); font-size: 13.5px; }
+
+.foutdoos {
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: var(--tint-danger);
+  border: 1px solid var(--line-danger);
+  color: var(--text-danger);
+  font-size: 13.5px;
+}
+
+.waarschuwdoos {
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: var(--tint-warn);
+  border: 1px solid var(--line-warn);
+  color: var(--text-warn);
+  font-size: 13.5px;
+}
+
+.infodoos {
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: var(--tint-info);
+  border: 1px solid var(--line-info);
+  color: var(--text-info);
+  font-size: 13.5px;
+}
+
+/* Personeel kiezen bij het aanmelden */
+.mensen {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.mens {
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mens:hover { background: var(--surface-3); }
+.mens .naam { font-weight: 600; }
+.mens .nr { font-size: 12px; color: var(--text-3); }
+.mens.ingeklokt { border-color: var(--line-ok); background: var(--tint-ok); }
+
+/* Het pijltje dat rondgaat terwijl er gesynchroniseerd wordt. */
+.draait { animation: rondje 1s linear infinite; }
+
+@keyframes rondje {
+  from { transform: rotate(0deg) }
+  to   { transform: rotate(360deg) }
+}
