@@ -198,6 +198,19 @@ het UDP-antwoord tegenhoudt, of een speaker die geen UPnP spreekt (een
 bluetooth- of kabelspeaker heeft geen netwerkadres en is van buitenaf niet te
 besturen).
 
+**Alexa en Echo doen niet mee**, en dat is geen omissie: Amazon heeft nooit een
+lokale API voor de Echo uitgebracht — alles gaat via hun cloud. De zoekactie
+vindt hem dus niet. Bijsturen doe je daar met je stem, en dat is aan een balie
+sneller dan de kassa erbij pakken.
+
+De enige officiële route die een Echo *wel* laat besturen, is Spotify Connect:
+dat bestuurt niet een apparaat maar wat er op het account speelt, en werkt
+daardoor op een Echo, een Chromecast en een Sonos met dezelfde code. Het vraagt
+Premium, een inlog per kassa, en het loopt tegen de licentievraag aan (een
+persoonlijk abonnement dekt geen muziek in een bedrijfsruimte; daarnaast gelden
+Buma/Stemra en Sena). Bewust niet gebouwd — het is een beslissing, geen
+bouwwerk.
+
 **Chromecast en Google Nest doen niet mee.** Die spreken geen UPnP maar castv2,
 een eigen protocol. Bovendien laat een Chromecast waarop iemand Spotify heeft
 gecast zich door een derde app niet besturen. Ziet de kassa iets van Google op

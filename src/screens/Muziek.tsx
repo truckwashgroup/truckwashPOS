@@ -146,6 +146,19 @@ export default function Muziek() {
                           worden; die heeft geen netwerkadres.
                         </li>
                       </ul>
+                      {/*
+                        Een Echo hoort hier expliciet bij te staan. Hij wordt
+                        niet gevonden en dat is verwacht -- Amazon heeft nooit
+                        een lokale API uitgebracht, alles gaat via hun cloud.
+                        Zonder deze regel gaat iemand hier over een half jaar
+                        naar een fout zoeken die er niet is.
+                      */}
+                      <div style={{ marginTop: 10 }}>
+                        Staat er een <strong>Alexa of Echo</strong>? Die wordt
+                        niet gevonden, en dat klopt: hij spreekt geen UPnP.
+                        Bijsturen doe je daar met je stem — "Alexa, pauze" —
+                        en dat werkt zonder dat de kassa erbij hoeft.
+                      </div>
                     </Uitleg>
                   ) : (
                     <>
