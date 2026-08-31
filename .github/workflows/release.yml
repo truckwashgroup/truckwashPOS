@@ -154,6 +154,15 @@ jobs:
           node scripts/sync-android-version.cjs
           npx cap sync android
 
+      # De XML nakijken vóór Gradle eraan begint.
+      #
+      # Een verboden `--` in een commentaar laat mergeResources omvallen met
+      # een SAXParseException en een stapel Java eronder, na vier minuten
+      # bouwen. Deze controle doet hetzelfde werk in een halve seconde en zegt
+      # in welk bestand het zit.
+      - name: XML van het Android-project nakijken
+        run: python scripts/xml-nakijken.py
+
       # Het uitvoerrecht op gradlew overleeft een checkout vanaf Windows niet
       # altijd. Zonder dit recht stopt de bouw met code 126: bestand gevonden,
       # maar mag niet draaien.

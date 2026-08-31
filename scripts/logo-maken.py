@@ -245,7 +245,7 @@ def android_pictogrammen():
     kleur.write_text(
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<resources>\n'
-        '    <!-- Hetzelfde donkerblauw als --bg-2 in kassa.css -->\n'
+        '    <!-- Hetzelfde donkerblauw als bg-2 in kassa.css -->\n'
         '    <color name="ic_launcher_background">#0B1220</color>\n'
         '</resources>\n',
         encoding='utf-8',
@@ -304,8 +304,8 @@ def android_opstartscherm():
     )
 
     for map_naam, waarde, toelichting in [
-        ('values', '#F6F8FB', 'licht: --bg-2 uit het lichte palet'),
-        ('values-night', '#070C16', 'donker: --bg uit het donkere palet'),
+        ('values', '#F6F8FB', 'licht: bg-2 uit het lichte palet'),
+        ('values-night', '#070C16', 'donker: bg uit het donkere palet'),
     ]:
         doel = res / map_naam
         doel.mkdir(parents=True, exist_ok=True)

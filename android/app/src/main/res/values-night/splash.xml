@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- donker: --bg uit het donkere palet -->
+    <!-- donker: bg uit het donkere palet -->
     <color name="splash_achtergrond">#070C16</color>
 </resources>

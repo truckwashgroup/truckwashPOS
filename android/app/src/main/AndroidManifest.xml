@@ -46,7 +46,7 @@
       Releases en geeft die aan Android, waarna de gebruiker één keer op
       Installeren tikt. Zonder dit recht mislukt dat laatste stil.
 
-      Google beperkt dit recht in de Play Store, en terecht -- een app die
+      Google beperkt dit recht in de Play Store, en terecht - een app die
       software kan installeren is een app die je moet vertrouwen. Voor een
       app die je zelf op je eigen tablets zet is dit de bedoelde weg. Zie
       ApkUpdater.java.
