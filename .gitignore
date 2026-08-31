@@ -38,3 +38,6 @@ Truckwash1-Kassa-*.apk
 
 # Werkbestanden van de Supabase-CLI
 supabase/.temp/
+
+# Schermafdrukken zijn werkmateriaal, geen broncode.
+schermafdrukken/

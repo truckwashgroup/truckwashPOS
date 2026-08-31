@@ -1,7 +1,7 @@
 {
   "name": "truckwash-pos",
   "productName": "Truckwash1 Kassa",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Truckwash1 Group - kassasysteem met klokin, werkt door zonder internet",
   "author": {
     "name": "Truckwash1 Group",
@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "selftest": "tsx scripts/selftest.ts",
     "xmltest": "python scripts/xml-nakijken.py",
+    "afdruk": "npm run build && node scripts/start-electron.cjs scripts/schermafdruk.cjs",
     "kern:check": "node scripts/kern-bijwerken.cjs",
     "kern:bijwerken": "node scripts/kern-bijwerken.cjs --schrijf",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5174 && cross-env NODE_ENV=development node scripts/start-electron.cjs\"",

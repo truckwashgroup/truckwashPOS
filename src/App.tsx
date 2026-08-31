@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import logo from './assets/kassa-icoon.png'
 import Toasts from './components/Toasts'
-import { Knop, Pil } from './components/ui'
+import { Knop, Pil, ThemaKnop } from './components/ui'
 import Aanmelden from './screens/Aanmelden'
 import Beheer from './screens/Beheer'
 import Bonnen from './screens/Bonnen'
@@ -69,6 +69,7 @@ export default function App() {
   if (booting || register === undefined) {
     return (
       <div className="midden">
+        <ThemaKnop />
         <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
           <img src={logo} alt="" style={{ height: 44, borderRadius: 8, marginBottom: 14 }} />
           <div>Kassa wordt gestart…</div>
@@ -98,17 +99,7 @@ export default function App() {
   if (!operator && !alleenKlok) {
     return (
       <>
-        <Aanmelden />
-        <div
-          style={{
-            position: 'fixed', bottom: 22, left: 0, right: 0,
-            display: 'flex', justifyContent: 'center',
-          }}
-        >
-          <Knop soort="stil" onClick={() => setAlleenKlok(true)}>
-            <Clock size={17} /> Alleen in- of uitklokken
-          </Knop>
-        </div>
+        <Aanmelden onAlleenKlok={() => setAlleenKlok(true)} />
         <Toasts />
       </>
     )

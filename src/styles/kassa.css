@@ -443,28 +443,96 @@ input, select, textarea { font: inherit; }
    Toetsenblok
    ================================================================== */
 
+/*
+  Het toetsenblok vult de breedte die het krijgt.
+
+  Stond eerst op 330 pixels breed met toetsen van 68 hoog -- kleiner dan het
+  blok op een telefoon, in een venster van veertienhonderd pixels. Aan een
+  kassa mik je er staand op, soms met natte handen, en dan is groot geen luxe.
+*/
 .toetsen {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  max-width: 330px;
+  gap: 12px;
+  width: 100%;
 }
 
 .toets {
-  min-height: 68px;
-  font-size: 24px;
+  min-height: 84px;
+  font-size: 30px;
   font-weight: 700;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  transition: transform .06s ease, background .14s ease;
 }
 
 .toets:hover { background: var(--surface-3); }
 .toets:active { transform: scale(.97); }
-.toets.wis { background: var(--tint-danger); border-color: var(--line-danger); color: var(--text-danger); font-size: 17px; }
-.toets.klaar { background: var(--brand); border-color: var(--brand); color: var(--on-brand); font-size: 17px; }
+.toets.wis {
+  background: var(--tint-danger);
+  border-color: var(--line-danger);
+  color: var(--text-danger);
+  font-size: 20px;
+}
+.toets.klaar {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+  font-size: 20px;
+  font-weight: 800;
+}
+.toets.klaar:hover:not(:disabled) { background: #ffcf2e; }
+.toets:disabled { opacity: .4; cursor: not-allowed; }
+
+/*
+  De OK-toets uitgeschakeld.
+
+  Met alleen 40% dekking wordt merkgeel op donker een modderig olijf, en dat
+  leest als kapot in plaats van als "nog niet". Dus geven we hem in die stand
+  gewoon de kleur van een gewone toets.
+*/
+.toets.klaar:disabled {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-3);
+  opacity: 1;
+}
+
+/*
+  Het veld waar het ingetoetste nummer in komt.
+
+  Eerst stonden hier vier losse streepjes te zweven; dat leest als een kapot
+  element in plaats van als een veld waar iets in hoort. Nu is het een vlak met
+  een rand, zodat je ziet waar het naartoe gaat.
+*/
+.nummerveld {
+  display: grid;
+  place-items: center;
+  min-height: 78px;
+  padding: 0 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nummerveld.leeg {
+  color: var(--text-3);
+  letter-spacing: 2px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 
 .codevakjes { display: flex; gap: 10px; justify-content: center; }
 
@@ -627,18 +695,37 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   place-items: center;
   height: 100%;
   padding: 24px;
+  overflow: auto;
+  position: relative;
 }
 
 .midden .doos {
-  width: min(460px, 100%);
+  width: min(520px, 100%);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 26px;
+  padding: 28px;
   box-shadow: var(--shadow);
 }
 
-.midden .doos.wijd { width: min(760px, 100%); }
+.midden .doos.wijd { width: min(820px, 100%); }
+
+/*
+  De knoppen in de hoek van een scherm zonder balk.
+
+  Licht en donker wisselen zit normaal in de balk bovenaan, maar die bestaat
+  nog niet als je niet bent aangemeld -- en dat is precies het scherm dat je
+  het eerst ziet. Wie zijn kassa in het donker wil, moest zich dus eerst
+  aanmelden in een stand die hij niet wilde.
+*/
+.hoekknoppen {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+}
 
 .midden h1 { margin: 0 0 6px; font-size: 22px; }
 .midden .onder { margin: 0 0 20px; color: var(--text-3); font-size: 13.5px; }
@@ -765,11 +852,37 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   color-scheme: light;
 }
 
-/* De gloed rechtsboven en de balk zijn in het licht een andere kleur. */
+/*
+  In het licht bijna geen gloed.
+
+  Op donker geeft een vleugje geel diepte. Op licht wordt het een vage vlek in
+  de hoek die eruitziet alsof het scherm vies is -- dus houden we hem hier
+  nauwelijks zichtbaar.
+*/
 :root[data-thema="licht"] body {
   background:
-    radial-gradient(1200px 700px at 100% 0%, rgba(224, 168, 0, .10), transparent 60%),
+    radial-gradient(1000px 600px at 100% 0%, rgba(224, 168, 0, .045), transparent 62%),
     var(--bg);
+}
+
+/* Een witte kaart op een bijna-witte achtergrond heeft een echte rand nodig. */
+:root[data-thema="licht"] .midden .doos,
+:root[data-thema="licht"] .kaart,
+:root[data-thema="licht"] .dialoog {
+  border-color: #c2cdde;
+  box-shadow: 0 6px 20px rgba(19, 33, 60, .10);
+}
+
+:root[data-thema="licht"] .toets {
+  background: #fff;
+  border-color: #c8d2e2;
+}
+
+:root[data-thema="licht"] .toets:hover:not(:disabled) { background: var(--surface-2); }
+
+:root[data-thema="licht"] .nummerveld {
+  background: #fff;
+  border-color: #c8d2e2;
 }
 
 :root[data-thema="licht"] .balk {
@@ -800,4 +913,175 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   animation-duration: .001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: .001ms !important;
+}
+
+/* ==================================================================
+   Het voorportaal
+
+   De schermen vóórdat de kassa openstaat. Links het merk, rechts waar
+   je iets doet -- in plaats van een kaartje in het midden van een leeg
+   venster.
+
+   De rechterkant is een vlak met een eigen achtergrond en geen losse
+   kaart erin. Twee randen om dezelfde inhoud is er een te veel.
+   ================================================================== */
+
+.voorportaal {
+  display: grid;
+  grid-template-columns: 1fr min(560px, 46%);
+  height: 100%;
+  position: relative;
+}
+
+.voorportaal > .merk {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 48px;
+  overflow: hidden;
+  position: relative;
+}
+
+.voorportaal .merkinhoud { max-width: 46ch; }
+
+.voorportaal .merkinhoud img {
+  height: 84px;
+  width: 84px;
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.voorportaal .merkinhoud h1 {
+  margin: 26px 0 0;
+  font-size: 40px;
+  line-height: 1.05;
+  letter-spacing: -1px;
+  font-weight: 800;
+}
+
+.voorportaal .merkinhoud h1 span {
+  display: block;
+  color: var(--brand);
+}
+
+.voorportaal .merkinhoud p {
+  margin: 18px 0 0;
+  color: var(--text-3);
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+/*
+  Het versienummer onderaan, los van de stroom.
+
+  Met margin-top:auto duwde het de rest naar boven, en dan stond het merk
+  bovenin met een leeg gat eronder. Nu staat het merk in het midden -- waar je
+  kijkt -- en het versienummer waar het hoort: uit de weg.
+*/
+.voorportaal > .merk .voet {
+  position: absolute;
+  left: 48px;
+  bottom: 40px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.voorportaal > .werk {
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  overflow: auto;
+}
+
+.voorportaal .inhoud { width: min(420px, 100%); }
+
+/* De brede variant: merk als balk bovenaan, inhoud eronder. */
+.voorportaal.breed {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+}
+
+.voorportaal.breed > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(11, 18, 32, .5);
+}
+
+.voorportaal.breed > header img { height: 34px; border-radius: 8px; }
+
+.voorportaal.breed > header strong { display: block; font-size: 15px; }
+
+.voorportaal.breed > header span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--brand);
+}
+
+.voorportaal.breed > .werk {
+  background: transparent;
+  border-left: 0;
+  align-items: start;
+  padding: 28px;
+}
+
+.voorportaal.breed .inhoud { width: min(900px, 100%); }
+
+/* Op een smal scherm valt het merk weg; het werk blijft. */
+@media (max-width: 920px) {
+  .voorportaal { grid-template-columns: 1fr; }
+  .voorportaal > .merk { display: none; }
+  .voorportaal > .werk { border-left: 0; }
+}
+
+:root[data-thema="licht"] .voorportaal.breed > header {
+  background: rgba(255, 255, 255, .6);
+}
+
+/* Titels in het voorportaal: dezelfde maat als in een kaart. */
+.voorportaal .inhoud h2 {
+  margin: 0 0 4px;
+  font-size: 21px;
+}
+
+.voorportaal .inhoud .onder {
+  margin: 0 0 20px;
+  color: var(--text-3);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* ==================================================================
+   Korte schermen
+
+   Op een tablet van 1024 bij 700 liep het voorportaal net niet in beeld:
+   je moest scrollen om bij "Alleen klokken" te komen. Aan een kassa is
+   scrollen om een knop te bereiken geen optie -- iemand staat te wachten.
+
+   Dus wordt bij een lage hoogte alles een maatje kleiner. Nog steeds
+   ruim boven wat je met een duim raakt (68 pixels), maar het past.
+   ================================================================== */
+
+@media (max-height: 780px) {
+  .toets { min-height: 68px; font-size: 26px; }
+  .toets.wis, .toets.klaar { font-size: 18px; }
+  .toetsen { gap: 10px; }
+
+  .nummerveld { min-height: 62px; font-size: 32px; }
+
+  .voorportaal > .werk { padding: 22px; }
+  .voorportaal .merkinhoud img { height: 68px; width: 68px; }
+  .voorportaal .merkinhoud h1 { font-size: 34px; margin-top: 20px; }
+}
+
+/* Nog korter -- een oude tablet in liggende stand. */
+@media (max-height: 660px) {
+  .toets { min-height: 58px; font-size: 23px; }
+  .nummerveld { min-height: 54px; font-size: 28px; }
+  .voorportaal .merkinhoud p { display: none; }
 }

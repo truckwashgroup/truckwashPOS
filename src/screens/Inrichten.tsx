@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Monitor, Plus, RefreshCw } from 'lucide-react'
-import logo from '../assets/kassa-icoon.png'
+import Voorportaal from '../components/Voorportaal'
 import { Fout, Knop, Uitleg, Veld, Waarschuwing } from '../components/ui'
 import { db, uid } from '../lib/db'
 import {
@@ -55,20 +55,18 @@ function Aanmelden({
   }
 
   return (
-    <div className="midden">
-      <form className="doos" onSubmit={verstuur}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-          <img src={logo} alt="" style={{ height: 40, borderRadius: 7 }} />
-          <div>
-            <h1 style={{ margin: 0, fontSize: 20 }}>Truckwash1 Kassa</h1>
-            <p className="onder" style={{ margin: 0 }}>Dit apparaat inrichten</p>
-          </div>
-        </div>
+    <Voorportaal ondertitel="Kassa inrichten">
+      <form onSubmit={verstuur}>
+        <h2>Dit apparaat inrichten</h2>
+        <p className="onder">
+          Eén keer, met internet. Daarna weet de kassa welke vestiging dit is en
+          werkt hij ook offline.
+        </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Veld
             label="E-mailadres"
-            hint="Hetzelfde account als in de wasstraat-app. Eén keer met internet, daarna werkt de kassa ook offline."
+            hint="Hetzelfde account als in de wasstraat-app."
           >
             <input
               type="email"
@@ -96,7 +94,7 @@ function Aanmelden({
           </Knop>
         </div>
       </form>
-    </div>
+    </Voorportaal>
   )
 }
 
@@ -129,9 +127,9 @@ function KassaKiezen() {
   }
 
   return (
-    <div className="midden">
-      <div className="doos wijd">
-        <h1>Welke kassa is dit?</h1>
+    <Voorportaal breed ondertitel="Welke kassa is dit?">
+      <div>
+        <h2>Welke kassa is dit?</h2>
         <p className="onder">
           Het bonnummer begint met de code van de kassa. Staat er al een apparaat
           op deze kassa, dan geven beide dezelfde bonnummers en blijft de tweede
@@ -225,7 +223,7 @@ function KassaKiezen() {
           )}
         </div>
       </div>
-    </div>
+    </Voorportaal>
   )
 }
 

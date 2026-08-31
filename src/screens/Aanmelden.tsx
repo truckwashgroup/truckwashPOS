@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ArrowLeft, KeyRound, ScanLine } from 'lucide-react'
+import { ArrowLeft, Clock, KeyRound, ScanLine } from 'lucide-react'
 import Toetsenblok from '../components/Toetsenblok'
+import Voorportaal from '../components/Voorportaal'
 import { Fout, Knop, Uitleg, Veld, Waarschuwing } from '../components/ui'
 import { normaliseerNummer, nummerProbleem, nummersNakijken } from '../lib/code'
 import { useScanner } from '../lib/hardware/scanner'
@@ -27,7 +28,7 @@ import type { User } from '../lib/types'
  *  ingericht. Dat is het sterkere slot van de twee en het werkt ook offline.
  * ------------------------------------------------------------------ */
 
-export default function Aanmelden() {
+export default function Aanmelden({ onAlleenKlok }: { onAlleenKlok: () => void }) {
   const { apparaat, meldAan, meldAanMetBadge } = useAuth()
   const [nummer, setNummer] = useState('')
   const [metWachtwoord, setMetWachtwoord] = useState(false)
@@ -78,87 +79,88 @@ export default function Aanmelden() {
   const schoon = normaliseerNummer(nummer)
 
   return (
-    <div className="midden">
-      <div className="doos">
-        <h1>Personeelsnummer</h1>
-        <p className="onder">
-          Toets je personeelsnummer en druk op OK. Heb je een badge, scan hem
-          dan — dat is sneller.
-        </p>
+    <Voorportaal>
+      <h2>Personeelsnummer</h2>
+      <p className="onder">Toets in en druk op OK, of scan je badge.</p>
 
-        <div style={{ margin: '20px 0', textAlign: 'center' }}>
-          <div
-            className="cijfers"
-            style={{
-              fontSize: 40, fontWeight: 800, letterSpacing: 4, minHeight: 52,
-              color: schoon ? 'var(--text)' : 'var(--text-3)',
-            }}
-          >
-            {/*
-              Het nummer staat open in beeld en niet als stipjes. Het is geen
-              geheim -- het staat op elk rooster -- en aan een balie is zien
-              wat je hebt ingetoetst belangrijker dan het verbergen van iets
-              wat toch al bekend is.
-            */}
-            {schoon || '––––'}
-          </div>
-        </div>
-
-        {fout && <div style={{ marginBottom: 14 }}><Fout>{fout}</Fout></div>}
-
-        {/*
-          Twee dingen maken aanmelden onmogelijk, en ze zijn hier te zien
-          voordat iemand ermee vastloopt.
-        */}
-        {controle.dubbel.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <Waarschuwing>
-              {controle.dubbel.length === 1
-                ? `Nummer ${controle.dubbel[0].nummer} staat bij meer dan één medewerker (${controle.dubbel[0].namen.join(', ')}).`
-                : `${controle.dubbel.length} nummers staan bij meer dan één medewerker.`}
-              {' '}Zolang dat zo is, kan met dat nummer niemand aanmelden — de bon
-              zou op de verkeerde naam komen. Rechtzetten gebeurt in het
-              dashboard, onder Personeel.
-            </Waarschuwing>
-          </div>
-        )}
-
-        <div style={{ display: 'grid', placeItems: 'center' }}>
-          <Toetsenblok
-            waarde={nummer}
-            onWaarde={(v) => { setNummer(v); setFout(null) }}
-            maxLengte={24}
-            onKlaar={() => void probeer()}
-            klaarTekst="OK"
-            klaarUit={!schoon || bezig}
-          />
-        </div>
-
-        <div
-          style={{
-            marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--line)',
-            display: 'flex', flexDirection: 'column', gap: 10,
-          }}
-        >
-          <Knop maat="klein" onClick={() => setMetWachtwoord(true)}>
-            <KeyRound size={16} /> Aanmelden met het wachtwoord van dit apparaat
-          </Knop>
-          <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
-            <ScanLine size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
-            Badge scannen kan altijd, ook vanaf dit scherm.
-          </span>
-          {controle.zonderNummer.length > 0 && (
-            <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
-              {controle.zonderNummer.length === 1
-                ? 'Eén medewerker heeft nog geen personeelsnummer'
-                : `${controle.zonderNummer.length} medewerkers hebben nog geen personeelsnummer`}
-              {' '}en kan zich dus niet aanmelden. Dat staat in het dashboard onder
-              Personeel.
-            </span>
-          )}
-        </div>
+      {/*
+        Het nummer staat open in beeld en niet als stipjes. Het is geen
+        geheim -- het staat op elk rooster -- en aan een balie is zien wat je
+        hebt ingetoetst belangrijker dan het verbergen van iets wat toch al
+        bekend is.
+      */}
+      <div className={`nummerveld cijfers ${schoon ? '' : 'leeg'}`}>
+        {schoon || 'nog niets ingetoetst'}
       </div>
-    </div>
+      <div style={{ height: 16 }} />
+
+      {fout && <div style={{ marginBottom: 14 }}><Fout>{fout}</Fout></div>}
+
+      {/*
+        Twee dingen maken aanmelden onmogelijk, en ze zijn hier te zien
+        voordat iemand ermee vastloopt.
+      */}
+      {controle.dubbel.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <Waarschuwing>
+            {controle.dubbel.length === 1
+              ? `Nummer ${controle.dubbel[0].nummer} staat bij meer dan één medewerker (${controle.dubbel[0].namen.join(', ')}).`
+              : `${controle.dubbel.length} nummers staan bij meer dan één medewerker.`}
+            {' '}Zolang dat zo is, kan met dat nummer niemand aanmelden — de bon
+            zou op de verkeerde naam komen. Rechtzetten gebeurt in het
+            dashboard, onder Personeel.
+          </Waarschuwing>
+        </div>
+      )}
+
+      <Toetsenblok
+        waarde={nummer}
+        onWaarde={(v) => { setNummer(v); setFout(null) }}
+        maxLengte={24}
+        onKlaar={() => void probeer()}
+        klaarTekst="OK"
+        klaarUit={!schoon || bezig}
+      />
+
+      <div
+        style={{
+          marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--line)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}
+      >
+        {/*
+          Deze knoppen stonden eerst vast onderaan het venster, en lagen daar
+          over de rand van de kaart heen. Ze horen bij wat je hier doet, dus
+          staan ze er nu onder.
+        */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Knop maat="klein" onClick={onAlleenKlok} style={{ flex: '1 1 170px' }}>
+            <Clock size={16} /> Alleen klokken
+          </Knop>
+          <Knop
+            maat="klein"
+            onClick={() => setMetWachtwoord(true)}
+            style={{ flex: '1 1 170px' }}
+          >
+            <KeyRound size={16} /> Met wachtwoord
+          </Knop>
+        </div>
+
+        <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+          <ScanLine size={14} style={{ verticalAlign: -2, marginRight: 5 }} />
+          Badge scannen kan altijd, ook vanaf dit scherm.
+        </span>
+
+        {controle.zonderNummer.length > 0 && (
+          <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+            {controle.zonderNummer.length === 1
+              ? 'Eén medewerker heeft nog geen personeelsnummer en kan zich dus niet aanmelden.'
+              : `${controle.zonderNummer.length} medewerkers hebben nog geen personeelsnummer en kunnen zich dus niet aanmelden.`}
+            {' '}Dat zet je in het dashboard, onder Personeel.
+          </span>
+        )}
+      </div>
+    </Voorportaal>
   )
 }
 
@@ -213,61 +215,59 @@ function MetWachtwoord({
   }
 
   return (
-    <div className="midden">
-      <div className="doos">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <Knop soort="stil" maat="klein" onClick={onTerug}>
-            <ArrowLeft size={17} />
-          </Knop>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 19 }}>{apparaat.name}</h1>
-            <p className="onder" style={{ margin: 0 }}>
-              Het wachtwoord waarmee deze kassa is ingericht
-            </p>
-          </div>
+    <Voorportaal ondertitel="Kassa">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <Knop soort="stil" maat="klein" onClick={onTerug}>
+          <ArrowLeft size={17} />
+        </Knop>
+        <div>
+          <h2 style={{ margin: 0 }}>{apparaat.name}</h2>
+          <p className="onder" style={{ margin: 0 }}>
+            Het wachtwoord waarmee deze kassa is ingericht
+          </p>
         </div>
-
-        {!magKassa && (
-          <div style={{ marginBottom: 14 }}>
-            <Fout>
-              Dit account heeft het recht "Kassa gebruiken" niet, dus er kan niet
-              mee afgerekend worden. Geef het in het dashboard onder Personeel →
-              Rechten.
-            </Fout>
-          </div>
-        )}
-
-        <form onSubmit={controleer} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Veld
-            label="Wachtwoord"
-            hint="Hetzelfde wachtwoord als in de wasstraat-app. Dit werkt ook zonder internet."
-          >
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={wachtwoord}
-              onChange={(e) => { setWachtwoord(e.target.value); setFout(null) }}
-              autoFocus
-              required
-            />
-          </Veld>
-
-          {fout && <Fout>{fout}</Fout>}
-
-          <Knop soort="hoofd" breed type="submit" disabled={bezig || !magKassa}>
-            {bezig ? 'Bezig…' : 'Aanmelden'}
-          </Knop>
-        </form>
-
-        {eigenNummer && (
-          <div style={{ marginTop: 16 }}>
-            <Uitleg>
-              Voor de volgende keer: jouw personeelsnummer is genoeg om binnen te
-              komen. Deze omweg is er voor als dat niet werkt.
-            </Uitleg>
-          </div>
-        )}
       </div>
-    </div>
+
+      {!magKassa && (
+        <div style={{ marginBottom: 14 }}>
+          <Fout>
+            Dit account heeft het recht "Kassa gebruiken" niet, dus er kan niet
+            mee afgerekend worden. Geef het in het dashboard onder Personeel →
+            Rechten.
+          </Fout>
+        </div>
+      )}
+
+      <form onSubmit={controleer} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Veld
+          label="Wachtwoord"
+          hint="Hetzelfde wachtwoord als in de wasstraat-app. Dit werkt ook zonder internet."
+        >
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={wachtwoord}
+            onChange={(e) => { setWachtwoord(e.target.value); setFout(null) }}
+            autoFocus
+            required
+          />
+        </Veld>
+
+        {fout && <Fout>{fout}</Fout>}
+
+        <Knop soort="hoofd" breed type="submit" disabled={bezig || !magKassa}>
+          {bezig ? 'Bezig…' : 'Aanmelden'}
+        </Knop>
+      </form>
+
+      {eigenNummer && (
+        <div style={{ marginTop: 16 }}>
+          <Uitleg>
+            Voor de volgende keer: jouw personeelsnummer is genoeg om binnen te
+            komen. Deze omweg is er voor als dat niet werkt.
+          </Uitleg>
+        </div>
+      )}
+    </Voorportaal>
   )
 }

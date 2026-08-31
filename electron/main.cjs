@@ -58,6 +58,15 @@ function createWindow() {
     minHeight: 700,
     show: false,
     backgroundColor: '#0b1220',
+    /*
+      Geen menubalk in beeld.
+
+      "Bestand / Beeld" hoort niet op een kassascherm: er is niets te openen
+      en niets op te slaan. De balk blijft wel bestaan -- met Alt komt hij
+      tevoorschijn -- zodat herladen en de ontwikkelaarstools bereikbaar
+      blijven als er iets te onderzoeken valt.
+    */
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -66,6 +75,7 @@ function createWindow() {
     },
   })
 
+  mainWindow.setMenuBarVisibility(false)
   mainWindow.once('ready-to-show', () => mainWindow.show())
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

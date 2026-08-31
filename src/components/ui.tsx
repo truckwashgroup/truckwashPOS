@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { Moon, Sun, X } from 'lucide-react'
+import { useTheme } from '../lib/theme'
 
 /* ------------------------------------------------------------------ *
  *  Bouwstenen
@@ -127,6 +128,36 @@ export function Regel({
     <div className={`totaalrij ${groot ? 'groot' : ''}`}>
       <span className="label">{label}</span>
       <span className="waarde bedrag">{waarde}</span>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Licht of donker, op een scherm zonder balk
+ *
+ *  Het aanmeldscherm heeft geen balk bovenaan, en dat is juist het scherm dat
+ *  iemand het eerst ziet. Zonder deze knop zou hij zich eerst moeten aanmelden
+ *  in een stand die hij niet wil.
+ * ------------------------------------------------------------------ */
+
+export function ThemaKnop() {
+  const { actief, thema, setThema } = useTheme()
+
+  return (
+    <div className="hoekknoppen">
+      <button
+        type="button"
+        className="pil"
+        onClick={() => setThema(actief === 'donker' ? 'licht' : 'donker')}
+        title={thema === 'systeem'
+          ? 'Volgt nu je systeem — tik om vast te zetten'
+          : actief === 'donker' ? 'Naar licht' : 'Naar donker'}
+        style={{ cursor: 'pointer', height: 36, padding: '0 14px' }}
+        aria-label="Licht of donker"
+      >
+        {actief === 'donker' ? <Moon size={15} /> : <Sun size={15} />}
+        {actief === 'donker' ? 'Donker' : 'Licht'}
+      </button>
     </div>
   )
 }
