@@ -335,7 +335,7 @@ de Belastingdienst van een kassasysteem verwacht.
 npm run dev             # alleen de browser, op poort 5174
 npm run electron:dev    # Electron met live herladen
 npm run build           # controle + typecheck + bundel
-npm run selftest        # 187 controles: rekenwerk, nummers, afrekenen, kas, bon, muziek, speler
+npm run selftest        # 189 controles: rekenwerk, nummers, afrekenen, kas, bon, muziek, speler
 npm run kern:check      # wijkt de gedeelde kern af van het dashboard?
 ```
 

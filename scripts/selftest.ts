@@ -887,16 +887,36 @@ check('geluid en beeld overlappen niet',
 
 const { magGelezenWorden, toegestaneMappen } = (spelerModule._intern ?? spelerModule) as any
 
-check('zonder gekozen map mag niets',
-  !magGelezenWorden('C:\\Windows\\System32\\config\\SAM'))
+/*
+ * De paden bouwen we met node:path en niet met de hand.
+ *
+ * Eerst stonden hier Windows-paden ("C:\muziek\nummer.mp3"). Dat werkte hier
+ * en niet op de bouwmachine: daar is Linux, en dan is een backslash geen
+ * mappenscheiding maar een gewoon teken in een bestandsnaam -- dus viel de
+ * vergelijking om terwijl de code goed was. De speler draait alleen op
+ * Windows, maar de test draait overal.
+ */
+const nodePath = await import('node:path')
 
-toegestaneMappen.add('C:\\muziek')
-check('uit de gekozen map mag het', magGelezenWorden('C:\\muziek\\nummer.mp3'))
+const muziekWortel = nodePath.resolve('proef-muziekmap')
+const elders = nodePath.resolve('proef-ergens-anders')
+
+check('zonder gekozen map mag niets',
+  !magGelezenWorden(nodePath.join(muziekWortel, 'nummer.mp3')))
+
+toegestaneMappen.add(muziekWortel)
+
+check('uit de gekozen map mag het',
+  magGelezenWorden(nodePath.join(muziekWortel, 'nummer.mp3')))
+check('de map zelf mag ook', magGelezenWorden(muziekWortel))
 check('uit een onderliggende map ook',
-  magGelezenWorden('C:\\muziek\\artiest\\nummer.mp3'))
-check('van elders niet', !magGelezenWorden('C:\\Windows\\notepad.exe'))
+  magGelezenWorden(nodePath.join(muziekWortel, 'artiest', 'nummer.mp3')))
+check('van elders niet',
+  !magGelezenWorden(nodePath.join(elders, 'geheim.txt')))
 check('en met een omweg naar boven ook niet',
-  !magGelezenWorden('C:\\muziek\\..\\Windows\\notepad.exe'))
+  !magGelezenWorden(nodePath.join(muziekWortel, '..', 'proef-ergens-anders', 'geheim.txt')))
+check('een map die er net op lijkt is niet dezelfde',
+  !magGelezenWorden(muziekWortel + '-anders' + nodePath.sep + 'nummer.mp3'))
 
 /* ================================================================== *
  *  11. De bon
