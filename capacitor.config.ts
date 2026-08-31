@@ -6,14 +6,14 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   android: { allowMixedContent: true },
   ios: { contentInset: 'always' },
-  plugins: {
-    // OTA live-updates voor iOS/Android (zie README: npm i @capgo/capacitor-updater)
-    CapacitorUpdater: {
-      autoUpdate: true,
-      // updateUrl: 'https://updates.truckwash1group.nl/updates',
-      resetWhenUpdate: true,
-    },
-  },
+  /*
+   * Geen OTA-plugin.
+   *
+   * Bijwerken gaat via de APK van GitHub Releases -- dezelfde release waar de
+   * Windows-installer aan hangt. Dat werkt ook voor wijzigingen aan de native
+   * kant, waar een OTA-bundel niet bij komt, en het vraagt geen tweede plek
+   * om bestanden te hosten. Zie src/lib/hardware/apkUpdate.ts.
+   */
 }
 
 export default config

@@ -7,6 +7,11 @@ release
 # Native builds (de projectmappen android/ en ios/ horen er WEL in)
 android/.gradle
 android/app/build
+# De webbundel en de config in het Android-project worden door `cap sync`
+# gemaakt. Ze meecommitten betekent een diff van duizenden regels bij elke
+# build, en een kopie van de app die kan gaan afwijken van src/.
+android/app/src/main/assets/public
+android/app/src/main/assets/capacitor.config.json
 android/build
 android/local.properties
 android/.idea

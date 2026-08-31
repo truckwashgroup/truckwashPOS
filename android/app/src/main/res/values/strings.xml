@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Truckwash1 Kassa</string>
+    <string name="title_activity_main">Truckwash1 Kassa</string>
+    <string name="package_name">nl.truckwash1group.kassa</string>
+    <string name="custom_url_scheme">nl.truckwash1group.kassa</string>
+</resources>

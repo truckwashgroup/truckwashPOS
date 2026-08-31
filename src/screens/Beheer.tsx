@@ -899,16 +899,24 @@ function Weergave() {
 
 
 function Over() {
-  const { channel, state, version, newVersion, percent, message, check, install } = useUpdates()
+  const {
+    channel, state, version, newVersion, percent, message,
+    magInstalleren, check, install, toestemmingVragen,
+  } = useUpdates()
   const { lastSyncAt, pending, online } = useSync()
 
   return (
     <div className="kaart" style={{ maxWidth: 620 }}>
       <h3>Versie en updates</h3>
       <p className="uitleg">
-        Op Windows kijkt de kassa bij het starten en elk half uur of er een
-        nieuwere versie op GitHub staat, en downloadt die op de achtergrond.
-        Installeren gebeurt bij het afsluiten — of hier, na de dagafsluiting.
+        {channel === 'mobile'
+          ? 'De kassa kijkt bij het starten of er een nieuwere versie op GitHub ' +
+            'staat en haalt die op de achtergrond op. Installeren doe je hier, ' +
+            'na de dagafsluiting — daarbij vraagt Android één keer om ' +
+            'bevestiging.'
+          : 'Op Windows kijkt de kassa bij het starten en elk half uur of er een ' +
+            'nieuwere versie op GitHub staat, en downloadt die op de achtergrond. ' +
+            'Installeren gebeurt bij het afsluiten — of hier, na de dagafsluiting.'}
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -932,6 +940,26 @@ function Over() {
 
       {state === 'downloading' && (
         <p className="uitleg" style={{ marginTop: 14 }}>Downloaden… {percent}%</p>
+      )}
+
+      {/*
+        Op Android mag een app alleen een installatie starten als de gebruiker
+        dat per app heeft toegestaan. Staat dat uit, dan mislukt het
+        installeren zonder melding -- dus zeggen we het vóórdat er iemand op
+        de knop drukt, en niet erna.
+      */}
+      {channel === 'mobile' && !magInstalleren && (
+        <div style={{ marginTop: 14 }}>
+          <Uitleg>
+            Android moet deze app eenmalig toestaan om een update te installeren.
+            Zonder dat lukt het downloaden wel en het installeren niet.
+            <div style={{ marginTop: 10 }}>
+              <Knop maat="klein" onClick={() => void toestemmingVragen()}>
+                Instelling openen
+              </Knop>
+            </div>
+          </Uitleg>
+        </div>
       )}
       {state === 'ready' && (
         <div style={{ marginTop: 14 }}>

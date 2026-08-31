@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Het opstartscherm: een effen kleur met het merk in het midden.
+  Geen bitmap die uitgerekt wordt, dus goed in elke stand en op elk
+  formaat. De kleur staat in values/ en values-night/, zodat hij
+  meegaat met licht en donker.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_achtergrond" />
+    <item>
+        <bitmap
+            android:src="@drawable/splash_merk"
+            android:gravity="center"
+            android:tileMode="disabled" />
+    </item>
+</layer-list>

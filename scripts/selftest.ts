@@ -65,6 +65,7 @@ const kassa = await import('../src/lib/kassa')
 const kas = await import('../src/lib/kas')
 const { bonOpmaken, alsTekst, bonGegevens } = await import('../src/lib/bon')
 const { PUSH_ORDER } = await import('../src/lib/sync')
+const { vergelijkVersies } = await import('../src/lib/hardware/apkUpdate')
 
 type User = import('../src/lib/types').User
 type PosRegister = import('../src/lib/types').PosRegister
@@ -129,6 +130,28 @@ check('gemengd betalen heet gemengd',
   ]) === 'gemengd')
 check('een kaartbetaling van nul euro telt mee',
   geld.betaalwijze([{ method: 'abonnement', amount: 0 }]) === 'abonnement')
+
+/* ---- versies vergelijken ----
+ *
+ * Dit bepaalt of een tablet zichzelf bijwerkt. Gaat het hier fout, dan
+ * weigert hij een update zonder te zeggen waarom, of haalt hij er een op die
+ * ouder is dan wat er staat.
+ */
+
+check('0.2.0 is nieuwer dan 0.1.1', vergelijkVersies('0.2.0', '0.1.1') > 0)
+check('0.1.1 is ouder dan 0.2.0', vergelijkVersies('0.1.1', '0.2.0') < 0)
+check('gelijk is gelijk', vergelijkVersies('1.2.3', '1.2.3') === 0)
+check('de v ervoor doet niet mee', vergelijkVersies('v1.2.3', '1.2.3') === 0)
+
+// Dit is het geval dat met een tekstvergelijking altijd fout gaat: als tekst
+// komt "1" voor "9", dus zou 0.10.0 ouder lijken dan 0.9.0.
+check('0.10.0 is nieuwer dan 0.9.0', vergelijkVersies('0.10.0', '0.9.0') > 0)
+check('1.0.0 is nieuwer dan 0.99.99', vergelijkVersies('1.0.0', '0.99.99') > 0)
+
+check('een ontbrekend deel geldt als nul', vergelijkVersies('1.2', '1.2.0') === 0)
+check('en dan is 1.2.1 nieuwer dan 1.2', vergelijkVersies('1.2.1', '1.2') > 0)
+check('onzin in het nummer laat de rest werken',
+  vergelijkVersies('1.2.x', '1.2.0') === 0)
 
 /* ================================================================== *
  *  2. Gegevens klaarzetten

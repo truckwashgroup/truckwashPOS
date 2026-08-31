@@ -185,6 +185,142 @@ def opstartscherm(breedte, hoogte, donker=True):
     return vlak
 
 
+def rond(afbeelding):
+    """Een ronde uitsnede, voor launchers die een cirkel willen."""
+    maat = afbeelding.size[0]
+    masker = Image.new('L', (maat, maat), 0)
+    ImageDraw.Draw(masker).ellipse([0, 0, maat - 1, maat - 1], fill=255)
+    uit = Image.new('RGBA', (maat, maat), (0, 0, 0, 0))
+    uit.paste(afbeelding, (0, 0), masker)
+    return uit
+
+
+def android_pictogrammen():
+    """
+    De launcher-pictogrammen van Android.
+
+    Drie soorten, en ze zijn niet uitwisselbaar:
+
+      ic_launcher            het hele icoon, voor oudere Android-versies
+      ic_launcher_round      hetzelfde, rond uitgesneden
+      ic_launcher_foreground de losse voorgrond van het adaptieve icoon
+
+    Dat laatste is waar het misgaat als je gewoon het icoon kopieert. Een
+    adaptief icoon is 108 bij 108, waarvan de launcher alleen de binnenste
+    72 laat zien -- de rest gebruikt hij om te schuiven bij het animeren. Zet
+    je daar een dichtgetekend vierkant in, dan snijdt hij de randen eraf. De
+    voorgrond heeft dus géén achtergrond en houdt ruimte over.
+    """
+    res = WORTEL / 'android' / 'app' / 'src' / 'main' / 'res'
+    if not res.is_dir():
+        print('  (geen android/-map; overgeslagen. Maak hem met: npx cap add android)')
+        return
+
+    # De dichtheden van Android, met de maat van een gewoon icoon (48dp) en
+    # die van een adaptieve voorgrond (108dp).
+    dichtheden = [
+        ('mdpi', 48, 108),
+        ('hdpi', 72, 162),
+        ('xhdpi', 96, 216),
+        ('xxhdpi', 144, 324),
+        ('xxxhdpi', 192, 432),
+    ]
+
+    for naam, gewoon, voorgrond in dichtheden:
+        map_ = res / f'mipmap-{naam}'
+        map_.mkdir(parents=True, exist_ok=True)
+
+        vol = icoon(gewoon)
+        vol.save(map_ / 'ic_launcher.png')
+        rond(vol).save(map_ / 'ic_launcher_round.png')
+        icoon(voorgrond, afgerond=False, achtergrond=False).save(
+            map_ / 'ic_launcher_foreground.png')
+
+        print(f'  mipmap-{naam:8s} ic_launcher {gewoon}px, foreground {voorgrond}px')
+
+    # De achtergrond van het adaptieve icoon is een kleur, geen plaatje. Dat
+    # is met opzet: zo kan de launcher hem los van de voorgrond bewegen.
+    kleur = res / 'values' / 'ic_launcher_background.xml'
+    kleur.parent.mkdir(parents=True, exist_ok=True)
+    kleur.write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<resources>\n'
+        '    <!-- Hetzelfde donkerblauw als --bg-2 in kassa.css -->\n'
+        '    <color name="ic_launcher_background">#0B1220</color>\n'
+        '</resources>\n',
+        encoding='utf-8',
+    )
+    print('  values/ic_launcher_background.xml            #0B1220')
+
+
+def android_opstartscherm():
+    """
+    Het opstartscherm van Android.
+
+    Capacitor levert hier één splash.png die als vensterachtergrond wordt
+    uitgerekt. Op een tablet in liggende stand wordt dat een uitgesmeerd
+    plaatje, en daarom leveren de meeste projecten twintig varianten mee.
+
+    Dat doen we hier niet. In plaats van bitmaps zetten we er een layer-list
+    neer: een effen kleur met het merk gecentreerd erop. Android schaalt die
+    zelf naar elk scherm, in elke stand, en het is één bestand in plaats van
+    twintig. En omdat de kleur een resource is, kan hij in values-night
+    anders zijn -- dus geen witte flits voor wie donker gebruikt, en geen
+    donkere flits voor wie licht gebruikt.
+    """
+    res = WORTEL / 'android' / 'app' / 'src' / 'main' / 'res'
+    if not res.is_dir():
+        return
+
+    # Het merk zelf: alleen de bon, doorzichtig eromheen.
+    merk = icoon(512, afgerond=False, achtergrond=False)
+    (res / 'drawable').mkdir(parents=True, exist_ok=True)
+    merk.save(res / 'drawable' / 'splash_merk.png')
+
+    # De oude bitmap moet weg: twee resources met dezelfde naam laat Android
+    # niet bouwen.
+    oud = res / 'drawable' / 'splash.png'
+    if oud.exists():
+        oud.unlink()
+
+    (res / 'drawable' / 'splash.xml').write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<!--\n'
+        '  Het opstartscherm: een effen kleur met het merk in het midden.\n'
+        '  Geen bitmap die uitgerekt wordt, dus goed in elke stand en op elk\n'
+        '  formaat. De kleur staat in values/ en values-night/, zodat hij\n'
+        '  meegaat met licht en donker.\n'
+        '-->\n'
+        '<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <item android:drawable="@color/splash_achtergrond" />\n'
+        '    <item>\n'
+        '        <bitmap\n'
+        '            android:src="@drawable/splash_merk"\n'
+        '            android:gravity="center"\n'
+        '            android:tileMode="disabled" />\n'
+        '    </item>\n'
+        '</layer-list>\n',
+        encoding='utf-8',
+    )
+
+    for map_naam, waarde, toelichting in [
+        ('values', '#F6F8FB', 'licht: --bg-2 uit het lichte palet'),
+        ('values-night', '#070C16', 'donker: --bg uit het donkere palet'),
+    ]:
+        doel = res / map_naam
+        doel.mkdir(parents=True, exist_ok=True)
+        (doel / 'splash.xml').write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<resources>\n'
+            f'    <!-- {toelichting} -->\n'
+            f'    <color name="splash_achtergrond">{waarde}</color>\n'
+            '</resources>\n',
+            encoding='utf-8',
+        )
+
+    print('  drawable/splash.xml + splash_merk.png       (schaalt zelf, licht en donker)')
+
+
 def bewaar(afbeelding, *pad):
     doel = WORTEL.joinpath(*pad)
     doel.parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +349,11 @@ def main():
     bewaar(opstartscherm(2732, 2732, donker=True), 'assets', 'splash.png')
     bewaar(opstartscherm(2732, 2732, donker=True), 'assets', 'splash-dark.png')
 
-    print('\nKlaar. Voor Android/iOS daarna: npm run assets:icons\n')
+    print('\nAndroid\n')
+    android_pictogrammen()
+    android_opstartscherm()
+
+    print('\nKlaar.\n')
 
 
 if __name__ == '__main__':

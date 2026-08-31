@@ -213,7 +213,7 @@ de Belastingdienst van een kassasysteem verwacht.
 npm run dev             # alleen de browser, op poort 5174
 npm run electron:dev    # Electron met live herladen
 npm run build           # controle + typecheck + bundel
-npm run selftest        # 111 controles: rekenwerk, codes, afrekenen, kas, bon
+npm run selftest        # 131 controles: rekenwerk, codes, afrekenen, kas, bon, versies
 npm run kern:check      # wijkt de gedeelde kern af van het dashboard?
 ```
 
@@ -250,6 +250,42 @@ Wat níét gedeeld is en dat ook niet hoort te zijn: `db.ts` (andere tabellen),
 de kassa pagineert door en heeft een historie-horizon, want bonnen lopen in de
 tienduizenden).
 
+### Bijwerken op een tablet
+
+Windows en Android halen hun update uit **dezelfde release**. Alleen de weg
+erheen is anders, want Android kent geen updater buiten de Play Store om — en
+die is voor een app die alleen binnen dit bedrijf draait een omweg met een
+wachttijd van dagen.
+
+Wat de tablet doet:
+
+1. bij het opstarten aan GitHub vragen wat de laatste release is;
+2. is die nieuwer, dan de APK op de achtergrond ophalen;
+3. melden dat er een versie klaarstaat.
+
+Installeren gebeurt pas als iemand erop tikt, onder **Beheer → Versie**. Dat is
+met opzet: een tablet die midden in een transactie vraagt of hij mag
+herstarten, is erger dan een dag met de vorige versie werken.
+
+Android vraagt daarbij één keer om bevestiging, en dat kan niet anders. Software
+die zichzelf zonder vraag kan vervangen is precies wat het recht
+`REQUEST_INSTALL_PACKAGES` gevaarlijk maakt. Staat dat recht nog niet aan — het
+is een instelling per app en staat standaard uit — dan zegt de app dat vóórdat
+je op de knop drukt, met een knop die de juiste systeempagina opent. Zonder die
+melding zou het downloaden lukken en het installeren stil mislukken.
+
+Waar het zit:
+
+| Bestand | Wat het doet |
+|---|---|
+| [`src/lib/hardware/apkUpdate.ts`](src/lib/hardware/apkUpdate.ts) | vraagt GitHub om de laatste release, vergelijkt versienummers |
+| [`android/.../ApkUpdater.java`](android/app/src/main/java/nl/truckwash1group/kassa/ApkUpdater.java) | downloadt, controleert de grootte, start de installatie |
+| [`src/lib/updates.ts`](src/lib/updates.ts) | dezelfde store voor Windows en Android, dus het scherm hoeft het verschil niet te weten |
+
+Het versienummer vergelijken gebeurt per onderdeel en niet als tekst — anders is
+`0.10.0` ouder dan `0.9.0`. Dat gaat precies één keer mis, en dan sta je met een
+tablet die weigert bij te werken zonder te zeggen waarom. De zelftest dekt het.
+
 ### Uitbrengen
 
 ```bash
@@ -271,14 +307,24 @@ inloggen.
 
 ### Android-project
 
-Staat nog niet in de repo. Één keer lokaal aanmaken en meecommitten is beter dan
-het elke bouw laten ontstaan, want dan staan het pictogram en de ondertekening
-vast:
+Staat in de repo (`android/`), met het pictogram en de eigen plugin erin. De
+gebouwde webbundel staat er níét in: die maakt `cap sync` erbij.
 
 ```bash
-npx cap add android
-npm run android:apk
+npm run android:apk      # bouwt de APK lokaal
 ```
+
+Het pictogram opnieuw maken na een wijziging aan het ontwerp:
+
+```bash
+python scripts/logo-maken.py
+```
+
+Dat schrijft alle maten in één keer: de Windows-installer, de vijf
+launcher-dichtheden van Android, het adaptieve icoon (dat uit twee losse lagen
+bestaat) en het opstartscherm. Sharp — dat `@capacitor/assets` normaal gebruikt —
+werkt op deze machine niet door de npm 12-blokkade; PIL wel, en het is één
+script minder afhankelijkheid.
 
 > **Op deze machine:** Gradle 8.11 kan geen class files van JDK 25 lezen en
 > stopt met "Unsupported class file major version 69". Er staat een Temurin JDK
@@ -296,6 +342,10 @@ Eerlijk, zodat niemand ernaar hoeft te zoeken:
   betaalprovider voor nodig. Tot die tijd: met de hand intoetsen en bevestigen.
 - **Afdrukken op een tablet.** Vraagt een bluetooth-printer; nu staat de bon
   daar alleen op het scherm.
+- **De installatie op Android is niet op een toestel geprobeerd.** De code
+  compileert en de bouw slaagt, maar downloaden en installeren zijn hier niet
+  te testen zonder tablet. Kijk bij de eerste keer of het recht om te
+  installeren gevraagd wordt en of de update daarna doorkomt.
 - **Factureren.** De kassa zet bonnen op rekening klaar; er komt nog geen
   factuur uit. Dat hoort in het dashboard, bij Financieel.
 - **Rapportage over meerdere dagen.** De kassa toont de eigen kassadag en de
