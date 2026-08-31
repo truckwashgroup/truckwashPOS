@@ -5,11 +5,10 @@ import {
   BadgeCheck, Banknote, CreditCard, Download, KeyRound, Package, Plus, Printer,
   RefreshCw, Settings, Trash2,
 } from 'lucide-react'
-import Toetsenblok, { CodeVakjes } from '../components/Toetsenblok'
-import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld } from '../components/ui'
+import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld, Waarschuwing } from '../components/ui'
 import { db, uid } from '../lib/db'
 import { money } from '../lib/format'
-import { badgeIntrekken, badgeMaken, codeInstellen, codeProbleem } from '../lib/code'
+import { badgeIntrekken, badgeMaken, nummersNakijken } from '../lib/code'
 import { kanAfdrukken, openLade, proefBon } from '../lib/hardware/printer'
 import { TERMINAL_LABELS } from '../lib/hardware/terminal'
 import { bewaarRegister, losseKlant } from '../lib/kassa'
@@ -75,7 +74,7 @@ export default function Beheer({ register }: { register: PosRegister }) {
           className={`tab ${blad === 'codes' ? 'aan' : ''}`}
           onClick={() => setBlad('codes')}
         >
-          <KeyRound size={16} /> Codes en badges
+          <KeyRound size={16} /> Nummers en badges
         </button>
         <button
           type="button"
@@ -359,11 +358,18 @@ function ArtikelBewerken({
 }
 
 /* ================================================================== *
- *  Codes en badges
+ *  Nummers en badges
+ *
+ *  Het personeelsnummer is de inlogcode van de kassa. Dat nummer staat in het
+ *  dossier en wordt in het dashboard gezet, onder Personeel -- niet hier. Twee
+ *  plekken waar hetzelfde kan is één te veel, en een nummer dat op twee
+ *  plekken gezet kan worden gaat uit elkaar lopen.
+ *
+ *  Wat hier wél staat: of er iets aan die nummers mankeert, en de badges.
  * ================================================================== */
 
 function Codes() {
-  const { apparaat, operator } = useAuth()
+  const { apparaat } = useAuth()
   const [gekozen, setGekozen] = useState<User | null>(null)
 
   const locatie = apparaat?.locationId
@@ -376,33 +382,64 @@ function Codes() {
       .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
   }, [locatie], [] as User[])
 
-  const pins = useLiveQuery(async () => {
+  const badges = useLiveQuery(async () => {
     const alles = await db.pins.toArray()
-    return new Map(alles.map((p) => [p.userId, p]))
-  }, [], new Map())
+    return new Map(alles.filter((p) => p.badgeToken).map((p) => [p.userId, p.badgeToken!]))
+  }, [], new Map<string, string>())
+
+  const controle = useLiveQuery(
+    () => nummersNakijken(locatie),
+    [locatie],
+    { zonderNummer: [] as User[], dubbel: [] as { nummer: string; namen: string[] }[] },
+  )
 
   return (
     <div className="kaart">
-      <h3>Codes en badges</h3>
+      <h3>Nummers en badges</h3>
       <p className="uitleg">
-        Met zijn eigen code van zes cijfers meldt een medewerker zich aan de
-        kassa en klokt hij in. Zijn naam komt daarmee op de bon en zijn uren
-        gaan naar het dashboard. Een badge doet hetzelfde, maar sneller.
+        Met zijn personeelsnummer meldt een medewerker zich aan de kassa en klokt
+        hij in. Zijn naam komt daarmee op de bon en zijn uren gaan naar het
+        dashboard. Een badge doet hetzelfde, maar sneller.
       </p>
 
       <Uitleg>
-        De code is een ondertekening, geen wachtwoord: hij zegt wie er handelde.
-        Bij de gegevens komt niemand ermee — dat doet het account waarmee deze
-        kassa is ingericht.
+        Het nummer zelf zet je in het dashboard, onder Personeel. Hier zie je
+        alleen of er iets aan mankeert — want een medewerker zonder nummer, of
+        twee met hetzelfde, kan niet aanmelden.
       </Uitleg>
 
-      <div style={{ marginTop: 14 }}>
+      {controle.dubbel.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <Fout>
+            <strong>Dubbele nummers.</strong> Met deze nummers kan niemand
+            aanmelden — de kassa zou moeten gokken op wiens naam de bon komt.
+            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+              {controle.dubbel.map((d) => (
+                <li key={d.nummer}>
+                  <span className="cijfers">{d.nummer}</span> — {d.namen.join(', ')}
+                </li>
+              ))}
+            </ul>
+          </Fout>
+        </div>
+      )}
+
+      {controle.zonderNummer.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <Waarschuwing>
+            <strong>Nog geen nummer.</strong> Deze medewerkers kunnen zich niet
+            aanmelden en niet inklokken: {controle.zonderNummer.map((u) => u.name).join(', ')}.
+          </Waarschuwing>
+        </div>
+      )}
+
+      <div style={{ marginTop: 16 }}>
         {mensen.length === 0 ? (
           <Leeg tekst="De kassa heeft nog geen personeel opgehaald." />
         ) : (
           <div className="lijst">
             {mensen.map((u) => {
-              const pin = pins.get(u.id)
+              const nummer = (u.personnelNumber ?? '').trim()
               return (
                 <button
                   key={u.id}
@@ -413,12 +450,14 @@ function Codes() {
                   <div className="rek">
                     <div className="titel">{u.name}</div>
                     <div className="onder">
-                      {u.personnelNumber ?? ''}
+                      {nummer
+                        ? <span className="cijfers">{nummer}</span>
+                        : 'geen personeelsnummer'}
                       {u.function ? ` · ${u.function}` : ''}
                     </div>
                   </div>
-                  {pin?.badgeToken && <Pil soort="info"><BadgeCheck size={13} /> badge</Pil>}
-                  {pin ? <Pil soort="ok">code ingesteld</Pil> : <Pil soort="warn">geen code</Pil>}
+                  {badges.has(u.id) && <Pil soort="info"><BadgeCheck size={13} /> badge</Pil>}
+                  {nummer ? <Pil soort="ok">kan aanmelden</Pil> : <Pil soort="warn">kan niet aanmelden</Pil>}
                 </button>
               )
             })}
@@ -427,100 +466,68 @@ function Codes() {
       </div>
 
       {gekozen && (
-        <CodeZetten
-          user={gekozen}
-          doorId={operator?.id}
-          onSluiten={() => setGekozen(null)}
-        />
+        <BadgeBeheren user={gekozen} onSluiten={() => setGekozen(null)} />
       )}
     </div>
   )
 }
 
-function CodeZetten({
-  user, doorId, onSluiten,
-}: { user: User; doorId?: string; onSluiten: () => void }) {
-  const [code, setCode] = useState('')
-  const [fout, setFout] = useState<string | null>(null)
-  const [badgeQr, setBadgeQr] = useState<string | null>(null)
-  const [badgeCode, setBadgeCode] = useState<string | null>(null)
+function BadgeBeheren({
+  user, onSluiten,
+}: { user: User; onSluiten: () => void }) {
+  const [qr, setQr] = useState<string | null>(null)
+  const [code, setCode] = useState<string | null>(null)
 
-  const pin = useLiveQuery(
+  const rij = useLiveQuery(
     () => db.pins.where('userId').equals(user.id).first(), [user.id], undefined)
 
   useEffect(() => {
-    if (!pin?.badgeToken) { setBadgeQr(null); setBadgeCode(null); return }
-    setBadgeCode(pin.badgeToken)
-    void QRCode.toDataURL(pin.badgeToken, { width: 220, margin: 1 })
-      .then(setBadgeQr)
-      .catch(() => setBadgeQr(null))
-  }, [pin?.badgeToken])
+    if (!rij?.badgeToken) { setQr(null); setCode(null); return }
+    setCode(rij.badgeToken)
+    void QRCode.toDataURL(rij.badgeToken, { width: 220, margin: 1 })
+      .then(setQr)
+      .catch(() => setQr(null))
+  }, [rij?.badgeToken])
 
-  async function zet() {
-    const probleem = codeProbleem(code)
-    if (probleem) { setFout(probleem); return }
-
-    try {
-      await codeInstellen({ userId: user.id, code, doorId })
-      toast.ok(`Code ingesteld voor ${user.name}.`)
-      setCode('')
-      setFout(null)
-    } catch (e) {
-      setFout(e instanceof Error ? e.message : 'Instellen lukte niet')
-    }
-  }
+  const nummer = (user.personnelNumber ?? '').trim()
 
   return (
-    <Dialoog titel={user.name} onSluiten={onSluiten} wijd>
-      <div style={{ display: 'grid', gap: 22, gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)' }}>
+    <Dialoog titel={user.name} onSluiten={onSluiten}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div>
-          <h3 style={{ marginTop: 0 }}>Persoonlijke code</h3>
-          <p className="uitleg">
-            Zes cijfers. Geen rijtje op of af, en niet zes keer hetzelfde — dat is
-            wat iedereen als eerste probeert.
-          </p>
-
-          <div style={{ margin: '18px 0' }}>
-            <CodeVakjes waarde={code} lengte={6} />
-          </div>
-
-          {fout && <div style={{ marginBottom: 14 }}><Fout>{fout}</Fout></div>}
-
-          <div style={{ display: 'grid', placeItems: 'center' }}>
-            <Toetsenblok
-              waarde={code}
-              onWaarde={(v) => { setCode(v); setFout(null) }}
-              maxLengte={6}
-              onKlaar={() => void zet()}
-              klaarTekst="Zet"
-              klaarUit={code.length !== 6}
-            />
-          </div>
-
-          {pin && (
-            <p className="uitleg" style={{ marginTop: 16, marginBottom: 0 }}>
-              Er staat al een code. Een nieuwe zetten vervangt hem; de oude is
-              niet te lezen, ook niet door jou.
-            </p>
+          <h3 style={{ marginTop: 0 }}>Personeelsnummer</h3>
+          {nummer ? (
+            <div className="cijfers" style={{ fontSize: 26, fontWeight: 800 }}>{nummer}</div>
+          ) : (
+            <Waarschuwing>
+              Deze medewerker heeft geen personeelsnummer en kan zich dus niet
+              aanmelden. Zet er een in het dashboard, onder Personeel.
+            </Waarschuwing>
           )}
+          <p className="uitleg" style={{ marginTop: 8, marginBottom: 0 }}>
+            Wijzigen gebeurt in het dashboard. Hier staat het alleen om na te
+            kijken.
+          </p>
         </div>
 
-        <div>
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
           <h3 style={{ marginTop: 0 }}>Badge</h3>
           <p className="uitleg">
             Een badge is een gescande code op een kaartje of sleutelhanger. Druk
-            de QR-code af en lamineer hem.
+            de QR-code af en lamineer hem. Scannen is sneller dan tikken, en op
+            een sleutelhanger raak je hem minder makkelijk kwijt dan een nummer
+            uit je hoofd.
           </p>
 
-          {badgeQr ? (
+          {qr ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <img
-                src={badgeQr}
+                src={qr}
                 alt="Badge"
                 style={{ width: 200, borderRadius: 10, background: '#fff', padding: 8 }}
               />
               <div className="cijfers" style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                {badgeCode}
+                {code}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Knop
@@ -546,7 +553,6 @@ function CodeZetten({
             </div>
           ) : (
             <Knop
-              disabled={!pin}
               onClick={async () => {
                 try {
                   await badgeMaken(user.id)
@@ -558,12 +564,6 @@ function CodeZetten({
             >
               <BadgeCheck size={17} /> Badge aanmaken
             </Knop>
-          )}
-
-          {!pin && (
-            <p className="uitleg" style={{ marginTop: 10 }}>
-              Stel eerst een code in; de badge hangt daaraan.
-            </p>
           )}
         </div>
       </div>

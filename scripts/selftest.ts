@@ -57,8 +57,10 @@ const bijna = (a: number, b: number) => Math.abs(a - b) < 0.005
 
 const { db, uid } = await import('../src/lib/db')
 const geld = await import('../src/lib/geld')
-const { codeInstellen, codeProbleem, herken, herkenBadge, badgeMaken } =
-  await import('../src/lib/code')
+const {
+  badgeMaken, herkenBadge, herkenOpNummer, normaliseerNummer, nummerProbleem,
+  nummersNakijken,
+} = await import('../src/lib/code')
 const klok = await import('../src/lib/klok')
 const kaarten = await import('../src/lib/kaarten')
 const kassa = await import('../src/lib/kassa')
@@ -250,51 +252,113 @@ check('een opgeschoonde code levert een bruikbaar bonnummer',
   /^[A-Z0-9-]+$/.test(bonNaOpschonen))
 
 /* ================================================================== *
- *  3. De persoonlijke code
+ *  3. Aanmelden met het personeelsnummer
  * ================================================================== */
 
-console.log('\n3. De persoonlijke code')
+console.log('\n3. Aanmelden met het personeelsnummer')
 
-check('vijf cijfers is geen code', codeProbleem('12345') !== null)
-check('zes dezelfde cijfers mag niet', codeProbleem('111111') !== null)
-check('een rijtje op mag niet', codeProbleem('123456') !== null)
-check('een rijtje af mag niet', codeProbleem('654321') !== null)
-check('letters mogen niet', codeProbleem('12a456') !== null)
-check('een gewone code mag', codeProbleem('418302') === null)
+/* ---- het nummer op één vorm brengen ---- */
 
-await codeInstellen({ userId: wasser.id, code: '418302', doorId: baas.id })
+check('streepjes en kleine letters doen niet mee',
+  normaliseerNummer('tw-014') === 'TW014', normaliseerNummer('tw-014'))
+check('ruimte eromheen valt eraf',
+  normaliseerNummer('  014  ') === '014', normaliseerNummer('  014  '))
+check('een leeg nummer blijft leeg', normaliseerNummer('  ') === '')
 
-const goed = await herken(wasser.id, '418302')
-check('met de juiste code kom je binnen', goed.ok && goed.user.id === wasser.id)
+check('zonder nummer kom je er niet in', nummerProbleem('') !== null)
+check('één cijfer mag', nummerProbleem('7') === null)
+check('drie cijfers mag', nummerProbleem('014') === null)
+check('acht cijfers mag ook', nummerProbleem('20260014') === null)
+check('een nummer met letters mag', nummerProbleem('TW-014') === null)
+check('vijfentwintig tekens is geen personeelsnummer',
+  nummerProbleem('1'.repeat(25)) !== null)
 
-const mis = await herken(wasser.id, '418303')
-check('met een verkeerde code niet', !mis.ok)
+/* ---- herkennen ----
+ *
+ * De wasser staat in de cache met nummer TW-014. Drie manieren waarop iemand
+ * dat intoetst horen alle drie te werken: het hele nummer, zonder streepje, en
+ * op een cijfertoetsenbord alleen de cijfers.
+ */
 
-const zonder = await herken(baas.id, '418302')
-check('zonder ingestelde code ook niet',
-  !zonder.ok && zonder.reden === 'geen-code')
+const opNummer = await herkenOpNummer('TW-014')
+check('het hele nummer werkt', opNummer.ok && opNummer.user.id === wasser.id)
 
-const pinRij = await db.pins.where('userId').equals(wasser.id).first()
-check('de code zelf staat er niet in',
-  Boolean(pinRij) && !JSON.stringify(pinRij).includes('418302'))
-check('er staat wel een afgeleide met een zout',
-  Boolean(pinRij?.hash && pinRij.salt && pinRij.hash.length === 64))
+check('zonder streepje werkt ook', (await herkenOpNummer('TW014')).ok)
+check('kleine letters ook', (await herkenOpNummer('tw-014')).ok)
+check('alleen de cijfers ook (cijfertoetsenbord)', (await herkenOpNummer('014')).ok)
 
-// Vier keer misgokken erbij: samen met de mislukte poging hierboven zijn dat
-// vijf, en dan hoort de rem erop te gaan.
-for (let i = 0; i < 4; i++) await herken(wasser.id, '000001')
-const geblokkeerd = await herken(wasser.id, '418302')
-check('na vijf misgetoetste pogingen zit hij een minuut op slot',
+const onbekend = await herkenOpNummer('999999')
+check('een onbekend nummer komt er niet in', !onbekend.ok)
+
+/* ---- twee mensen op hetzelfde nummer ----
+ *
+ * Dit is het geval waarop de kassa moet weigeren in plaats van gokken: kwam er
+ * een willekeurige van de twee uit, dan komen bon en urenstaat op de verkeerde
+ * naam en merkt niemand het tot het over geld gaat.
+ */
+
+const tweeling: User = {
+  id: 'u_tweeling', email: 'tweeling@truckwash1group.nl', password: '',
+  name: 'Sam de Tweeling', roles: ['employee'], active: true,
+  locationId: 'loc_utr', personnelNumber: 'TW-014', updatedAt: Date.now(),
+}
+await db.users.put(tweeling)
+
+const dubbel = await herkenOpNummer('TW-014')
+check('bij een dubbel nummer weigert hij', !dubbel.ok)
+check('en zegt hij wie het zijn',
+  !dubbel.ok && dubbel.reden === 'dubbel' && (dubbel.namen ?? []).length === 2,
+  !dubbel.ok ? String(dubbel.reden) : '')
+
+const nagekeken = await nummersNakijken('loc_utr')
+check('de controle vindt het dubbele nummer', nagekeken.dubbel.length === 1)
+check('en noemt beide namen', (nagekeken.dubbel[0]?.namen ?? []).length === 2)
+
+await db.users.delete(tweeling.id)
+check('na het opruimen werkt het nummer weer', (await herkenOpNummer('TW-014')).ok)
+
+/* ---- wie geen nummer heeft ---- */
+
+const zonder: User = {
+  id: 'u_zonder', email: 'zonder@truckwash1group.nl', password: '',
+  name: 'Nog Geen Nummer', roles: ['employee'], active: true,
+  locationId: 'loc_utr', updatedAt: Date.now(),
+}
+await db.users.put(zonder)
+const controle = await nummersNakijken('loc_utr')
+check('de controle ziet wie geen nummer heeft',
+  controle.zonderNummer.some((u) => u.id === zonder.id))
+await db.users.delete(zonder.id)
+
+/* ---- iemand die uit dienst is ---- */
+
+await db.users.put({ ...wasser, active: false })
+const uitDienst = await herkenOpNummer('TW-014')
+check('wie uit dienst is komt er niet meer in',
+  !uitDienst.ok && uitDienst.reden === 'inactief')
+await db.users.put({ ...wasser, active: true })
+
+/* ---- de rem op gokken ----
+ *
+ * Een nummer van drie cijfers is te raden door het simpelweg te proberen.
+ * Vijf pogingen en dan een minuut wachten maakt dat onbegonnen werk.
+ */
+
+for (let i = 0; i < 5; i++) await herkenOpNummer('888' + i)
+const geblokkeerd = await herkenOpNummer('TW-014')
+check('na vijf misgetoetste nummers zit hij even op slot',
   !geblokkeerd.ok && geblokkeerd.reden === 'geblokkeerd')
 
-// Een nieuwe code zetten haalt de rem eraf.
-await codeInstellen({ userId: wasser.id, code: '418302', doorId: baas.id })
-check('een nieuwe code haalt de rem eraf', (await herken(wasser.id, '418302')).ok)
-
+// Een geslaagde poging zet de teller terug; hier doen we dat met de badge,
+// want die loopt niet langs de rem van de nummers.
 const badge = await badgeMaken(wasser.id)
 check('een badge begint met TWB-', badge.startsWith('TWB-'))
 check('met de badge kom je binnen', (await herkenBadge(badge)).ok)
 check('met een verzonnen badge niet', !(await herkenBadge('TWB-ONZIN')).ok)
+check('en de rem staat daarna weer los', (await herkenOpNummer('TW-014')).ok)
+
+check('een badge heeft geen code nodig',
+  Boolean((await db.pins.where('userId').equals(wasser.id).first())?.badgeToken))
 
 /* ================================================================== *
  *  4. Klokken

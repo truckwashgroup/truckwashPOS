@@ -24,19 +24,47 @@ dezelfde Supabase-database als het dashboard. Dat betekent:
 
 Eén persoon, één personeelsnummer, één urenstaat. Niets om over te typen.
 
-### De persoonlijke code
+### Het personeelsnummer is de inlogcode
 
 Aan één kassa werken meerdere mensen. Er zijn dus twee soorten "ingelogd":
 
 - **Het apparaat** is ingericht met één account uit de wasstraat-app. Dat
   bepaalt welke vestiging dit is en wat de kassa mag ophalen. Eén keer instellen.
-- **De medewerker** meldt zich met zijn eigen code van zes cijfers of met zijn
-  badge. Zijn naam komt op de bon, zijn uren gaan naar het dashboard, en na vijf
+- **De medewerker** toetst zijn **personeelsnummer** in, of scant zijn badge.
+  Zijn naam komt op de bon, zijn uren gaan naar het dashboard, en na vijf
   minuten stilte valt hij er vanzelf af.
 
-De code is een ondertekening, geen wachtwoord: hij zegt wie er handelde. Bij de
-gegevens komt niemand ermee — dat doet het apparaataccount. Codes worden gezet
-onder **Beheer → Codes en badges** door iemand met het recht *Kassa beheren*.
+Er is dus geen tweede code om uit te delen of kwijt te raken: het nummer staat
+al in het dossier. De lengte doet niet mee — drie cijfers of acht, met of zonder
+letters ervoor. Het nummer wordt gezet in het **dashboard, onder Personeel**;
+niet in de kassa, want een nummer dat op twee plekken gezet kan worden gaat uit
+elkaar lopen.
+
+Intoetsen mag op drie manieren, want een cijfertoetsenbord kan geen letters:
+`TW-014`, `TW014` en `014` vinden alle drie dezelfde persoon.
+
+> **Wat dit wel en niet is.** Een personeelsnummer is geen geheim: het staat op
+> roosters en urenlijsten. Wie het nummer van een collega kent, kan zich als die
+> persoon aanmelden. Het nummer zegt dus *wie er handelde*, niet *dat het echt
+> die persoon was*. Daarom staat er een rem op het gokken (vijf pogingen, dan een
+> minuut wachten) en komt het nummer nergens in de app in beeld waar iemand het
+> kan aflezen. Bij de gegevens komt niemand ermee — dat doet het apparaataccount.
+
+Twee dingen maken aanmelden onmogelijk, en de kassa zegt ze allebei vóórdat
+iemand ermee vastloopt: een medewerker **zonder** nummer, en twee mensen met
+**hetzelfde** nummer. Dat laatste weigert de kassa bewust — gokken welke van de
+twee bedoeld is, betekent een bon en een urenstaat op de verkeerde naam.
+
+Kom je nergens in (geen nummer, of een dubbel nummer), dan is er
+**"Aanmelden met het wachtwoord van dit apparaat"** onderaan het aanmeldscherm.
+Dat werkt ook offline.
+
+### Badges
+
+Een badge is een QR-code op een kaartje of sleutelhanger; scannen is sneller dan
+tikken. Aanmaken en afdrukken gebeurt onder **Beheer → Nummers en badges**, door
+iemand met het recht *Kassa beheren*. Een badge is niet sterker dan het nummer —
+wie hem kan scannen, kan ook het nummer intoetsen — maar wel sneller.
 
 ---
 
@@ -213,7 +241,7 @@ de Belastingdienst van een kassasysteem verwacht.
 npm run dev             # alleen de browser, op poort 5174
 npm run electron:dev    # Electron met live herladen
 npm run build           # controle + typecheck + bundel
-npm run selftest        # 131 controles: rekenwerk, codes, afrekenen, kas, bon, versies
+npm run selftest        # 142 controles: rekenwerk, nummers, afrekenen, kas, bon, versies
 npm run kern:check      # wijkt de gedeelde kern af van het dashboard?
 ```
 

@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AlertTriangle, Clock, LogIn, LogOut } from 'lucide-react'
-import Toetsenblok, { CodeVakjes } from '../components/Toetsenblok'
+import Toetsenblok from '../components/Toetsenblok'
 import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld } from '../components/ui'
-import { db } from '../lib/db'
 import { duration, time } from '../lib/format'
-import { herken, herkenBadge } from '../lib/code'
+import { herkenBadge, herkenOpNummer, normaliseerNummer, nummerProbleem } from '../lib/code'
 import { useScanner } from '../lib/hardware/scanner'
 import {
   aanwezig, dienstCorrigeren, inklokken, openDienst, uitklokken, vandaagGewerkt,
@@ -19,35 +18,30 @@ import type { User } from '../lib/types'
 /* ------------------------------------------------------------------ *
  *  Klokken
  *
- *  De uren gaan in dezelfde tabel als in de wasstraat-app. Wie hier inklokt
- *  staat meteen in het dashboard onder Uren, en de leidinggevende keurt ze
- *  daar goed. Geen tweede urenlijst, geen overtypen.
+ *  Personeelsnummer intoetsen, of je badge scannen. Sta je erop, dan klok je
+ *  uit; sta je er niet op, dan klok je in. Eén handeling, geen keuze -- want
+ *  wie 's ochtends langsloopt weet zelf welke van de twee het is.
+ *
+ *  De uren gaan in dezelfde tabel als in de wasstraat-app (time_entries).
+ *  Daardoor is er geen "urenlijst van de kassa" die iemand later moet
+ *  overtypen: wie hier inklokt staat meteen in het dashboard onder Uren.
  *
  *  Waarom dit in de kassa zit en niet alleen in de app op de telefoon: de
  *  kassa staat er altijd, hij hangt aan de stroom, en iedereen loopt er langs.
  *  Een telefoon met een lege accu is een urenstaat met een gat.
  * ------------------------------------------------------------------ */
 
-const CODE_LENGTE = 6
-
 export default function Klok() {
   const { apparaat, operator, raakAan } = useAuth()
   const locatie = apparaat?.locationId
 
-  const [kiezen, setKiezen] = useState<User | null>(null)
-  const [code, setCode] = useState('')
+  const [nummer, setNummer] = useState('')
   const [fout, setFout] = useState<string | null>(null)
   const [bezig, setBezig] = useState(false)
+  const [gedaan, setGedaan] = useState<string | null>(null)
   const [corrigeren, setCorrigeren] = useState<Aanwezig | null>(null)
 
   const ingeklokt = useLiveQuery(() => aanwezig(locatie), [locatie], [] as Aanwezig[])
-
-  const mensen = useLiveQuery(async () => {
-    const alles = await db.users.toArray()
-    return alles
-      .filter((u) => u.active && (!locatie || !u.locationId || u.locationId === locatie || u.allLocations))
-      .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
-  }, [locatie], [] as User[])
 
   /* ---- badge: scannen klokt in of uit ---- */
   useScanner(async (gescand) => {
@@ -58,7 +52,7 @@ export default function Klok() {
       return
     }
     await wissel(uitslag.user)
-  }, !kiezen && !corrigeren)
+  }, !corrigeren)
 
   /** In- of uitklokken, wat er ook aan de orde is. */
   async function wissel(user: User) {
@@ -68,22 +62,28 @@ export default function Klok() {
     if (open) {
       const gesloten = await uitklokken(user.id)
       const gewerkt = gesloten && gesloten.end ? gesloten.end - gesloten.start : 0
-      toast.ok(`${user.name.split(' ')[0]} is uitgeklokt — ${duration(gewerkt)} gewerkt.`)
+      const tekst = `${user.name.split(' ')[0]} is uitgeklokt — ${duration(gewerkt)} gewerkt.`
+      toast.ok(tekst)
+      setGedaan(tekst)
     } else {
       const { alOpen } = await inklokken(user, locatie)
-      if (!alOpen) toast.ok(`${user.name.split(' ')[0]} is ingeklokt.`)
+      const tekst = `${user.name.split(' ')[0]} is ingeklokt.`
+      if (!alOpen) {
+        toast.ok(tekst)
+        setGedaan(tekst)
+      }
     }
 
-    setKiezen(null)
-    setCode('')
+    setNummer('')
     setFout(null)
   }
 
-  /** Klokken met de code, voor wie geen badge heeft. */
-  async function metCode() {
-    if (!kiezen || code.length !== CODE_LENGTE) return
+  async function probeer() {
+    const probleem = nummerProbleem(nummer)
+    if (probleem) { setFout(probleem); return }
+
     setBezig(true)
-    const uitslag = await herken(kiezen.id, code)
+    const uitslag = await herkenOpNummer(nummer)
     setBezig(false)
 
     if (!uitslag.ok) {
@@ -91,75 +91,30 @@ export default function Klok() {
         uitslag.reden === 'geblokkeerd'
           ? `Te vaak misgetoetst. Probeer het over ${
               Math.ceil((uitslag.wachtMs ?? 0) / 1000)} seconden weer.`
-          : uitslag.reden === 'geen-code'
-            ? 'Voor deze medewerker is nog geen code ingesteld.'
-            : 'Die code klopt niet.',
+          : uitslag.reden === 'inactief'
+            ? 'Deze medewerker staat niet meer op de loonlijst.'
+            : uitslag.reden === 'dubbel'
+              ? `Dit nummer staat bij meer dan één medewerker (${
+                  (uitslag.namen ?? []).join(', ')}). Laat het in het dashboard rechtzetten.`
+              : 'Dat personeelsnummer is niet bekend op deze vestiging.',
       )
-      setCode('')
+      setNummer('')
       return
     }
 
     await wissel(uitslag.user)
   }
 
-  /* ---------------- code toetsen ---------------- */
-
-  if (kiezen) {
-    const open = ingeklokt.find((a) => a.user.id === kiezen.id)
-
-    return (
-      <div className="paneel">
-        <div style={{ maxWidth: 420, margin: '0 auto' }}>
-          <div className="kaart">
-            <h3>{kiezen.name}</h3>
-            <p className="uitleg">
-              {open
-                ? `Ingeklokt om ${time(open.entry.start)}. Toets je code om uit te klokken.`
-                : 'Toets je code om in te klokken.'}
-            </p>
-
-            <div style={{ margin: '18px 0' }}>
-              <CodeVakjes waarde={code} lengte={CODE_LENGTE} />
-            </div>
-
-            {fout && <div style={{ marginBottom: 14 }}><Fout>{fout}</Fout></div>}
-
-            <div style={{ display: 'grid', placeItems: 'center' }}>
-              <Toetsenblok
-                waarde={code}
-                onWaarde={(v) => { setCode(v); setFout(null) }}
-                maxLengte={CODE_LENGTE}
-                onKlaar={() => void metCode()}
-                klaarTekst={open ? 'Uit' : 'In'}
-                klaarUit={code.length !== CODE_LENGTE || bezig}
-              />
-            </div>
-
-            <div style={{ marginTop: 16 }}>
-              <Knop
-                soort="stil"
-                breed
-                onClick={() => { setKiezen(null); setCode(''); setFout(null) }}
-              >
-                Terug
-              </Knop>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  /* ---------------- overzicht ---------------- */
+  const schoon = normaliseerNummer(nummer)
 
   return (
     <div className="paneel">
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)' }}>
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 380px)' }}>
         <div className="kaart">
           <h3>Nu aan het werk</h3>
           <p className="uitleg">
-            Wie hier staat, staat ook in het dashboard onder Uren. Scannen met een
-            badge klokt in of uit; zonder badge kies je hiernaast je naam.
+            Wie hier staat, staat ook in het dashboard onder Uren. Er is geen
+            tweede urenlijst.
           </p>
 
           {ingeklokt.length === 0 ? (
@@ -207,32 +162,41 @@ export default function Klok() {
 
         <div className="kaart">
           <h3>In- of uitklokken</h3>
-          <p className="uitleg">Kies je naam en toets je persoonlijke code.</p>
+          <p className="uitleg">
+            Toets je personeelsnummer, of scan je badge. Sta je op de lijst, dan
+            klok je uit.
+          </p>
 
-          {mensen.length === 0 ? (
-            <Leeg tekst="De kassa heeft nog geen personeel opgehaald." />
-          ) : (
-            <div className="mensen">
-              {mensen.map((u) => {
-                const open = ingeklokt.find((a) => a.user.id === u.id)
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    className={`mens ${open ? 'ingeklokt' : ''}`}
-                    onClick={() => { setKiezen(u); setFout(null); setCode('') }}
-                  >
-                    <div className="naam">{u.name}</div>
-                    <div className="nr">
-                      {open
-                        ? <><LogOut size={12} style={{ verticalAlign: -2 }} /> sinds {time(open.entry.start)}</>
-                        : <><LogIn size={12} style={{ verticalAlign: -2 }} /> {u.personnelNumber ?? ''}</>}
-                    </div>
-                  </button>
-                )
-              })}
+          <div style={{ margin: '14px 0', textAlign: 'center' }}>
+            <div
+              className="cijfers"
+              style={{
+                fontSize: 34, fontWeight: 800, letterSpacing: 3, minHeight: 44,
+                color: schoon ? 'var(--text)' : 'var(--text-3)',
+              }}
+            >
+              {schoon || '––––'}
+            </div>
+          </div>
+
+          {fout && <div style={{ marginBottom: 12 }}><Fout>{fout}</Fout></div>}
+
+          {!fout && gedaan && (
+            <div style={{ marginBottom: 12 }}>
+              <Uitleg>{gedaan}</Uitleg>
             </div>
           )}
+
+          <div style={{ display: 'grid', placeItems: 'center' }}>
+            <Toetsenblok
+              waarde={nummer}
+              onWaarde={(v) => { setNummer(v); setFout(null); setGedaan(null) }}
+              maxLengte={24}
+              onKlaar={() => void probeer()}
+              klaarTekst={<LogIn size={18} />}
+              klaarUit={!schoon || bezig}
+            />
+          </div>
         </div>
       </div>
 

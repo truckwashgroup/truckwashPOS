@@ -3,125 +3,239 @@ import { enqueue } from './sync'
 import type { PosPin, User } from './types'
 
 /* ------------------------------------------------------------------ *
- *  De persoonlijke code
+ *  Wie staat er achter de kassa?
  *
- *  Aan één kassa werken meerdere mensen. Het apparaat is ingelogd met een
- *  kassa-account; wie er op dat moment achter staat blijkt uit zijn eigen
- *  code van zes cijfers, of uit zijn badge. Daarmee klokt hij in, en daarmee
- *  komt zijn naam op de bon.
+ *  Het personeelsnummer is de inlogcode. Eén nummer per persoon, dat hij
+ *  toch al kent en dat al in het dossier staat -- dus niets extra's om uit
+ *  te delen, te onthouden of kwijt te raken.
+ *
+ *  De lengte doet niet mee: drie cijfers of acht, met of zonder letters ervoor.
+ *  Wat er in het dossier staat, is wat er werkt.
  *
  *  Wat dit is, en wat het niet is:
  *
- *  De code is een ondertekening, zoals een paraaf op een urenlijst. Hij zegt
- *  wie er handelde. Hij is géén wachtwoord waarmee je bij gegevens komt --
- *  daarvoor is het kassa-account, en dat wachtwoord staat nergens op dit
- *  apparaat.
+ *  Een personeelsnummer is geen geheim. Het staat op roosters, op urenlijsten
+ *  en in de app van collega's. Wie het nummer van iemand anders kent, kan zich
+ *  als die persoon aanmelden. Dat is een bewuste keuze -- het is hoe de meeste
+ *  kassa's met een medewerkersnummer werken -- maar het betekent dat de code
+ *  zegt *wie er handelde*, en niet *dat het echt die persoon was*.
  *
- *  Waarom dat onderscheid nodig is: controleren moet ook zonder internet
- *  kunnen, dus de kassa heeft de afgeleide van de code lokaal. Wie dat
- *  bestand in handen krijgt kan er offline op los proberen. Zes cijfers met
- *  PBKDF2 op 210.000 rondes kost dan ongeveer een etmaal rekenen per persoon.
- *  Genoeg om een nieuwsgierige collega tegen te houden, niet genoeg om er een
- *  wachtwoord van te maken -- en dat is precies hoe hij bedoeld is.
+ *  Daarom staat hier wel een rem op het gokken, en daarom komt het nummer
+ *  nergens in de app in beeld waar iemand het kan aflezen. Bij de gegevens
+ *  komt niemand ermee: dat doet het account waarmee de kassa is ingericht.
  * ------------------------------------------------------------------ */
 
-const RONDES = 210_000
-const LENGTE = 6
+/**
+ * Een nummer op één vorm brengen.
+ *
+ * Wat er in het dossier staat is niet altijd wat iemand intikt: "TW-014" wordt
+ * op een cijfertoetsenbord "014", en wie het uit zijn hoofd doet laat de
+ * streepjes weg. Alles naar hoofdletters en zonder leestekens dus.
+ */
+export function normaliseerNummer(ruw: string): string {
+  return ruw.toUpperCase().replace(/[^A-Z0-9]/g, '')
+}
 
-const enc = new TextEncoder()
+/** Alleen de cijfers, zodat "014" ook "TW-014" vindt. */
+function alleenCijfers(ruw: string): string {
+  return ruw.replace(/\D/g, '')
+}
+
+/** Waarom dit nummer niet kan, of null als het mag. */
+export function nummerProbleem(nummer: string): string | null {
+  const schoon = normaliseerNummer(nummer)
+  if (!schoon) return 'Vul je personeelsnummer in.'
+  if (schoon.length > 24) return 'Dat zijn meer tekens dan een personeelsnummer heeft.'
+  return null
+}
+
+/**
+ * De vormen waarop een medewerker te vinden is.
+ *
+ * Twee: het hele nummer zonder leestekens, en alleen de cijfers eruit. Zo
+ * werkt "TW-014" én "014" én "tw014" -- en dat scheelt uitleg aan de balie.
+ */
+function sleutelsVan(user: User): string[] {
+  const nummer = (user.personnelNumber ?? '').trim()
+  if (!nummer) return []
+
+  const heel = normaliseerNummer(nummer)
+  const cijfers = alleenCijfers(nummer)
+
+  const uit = [heel]
+  if (cijfers && cijfers !== heel) uit.push(cijfers)
+  return uit
+}
+
+/* ------------------------------------------------------------------ *
+ *  Te vaak misgetoetst
+ *
+ *  Een nummer van drie cijfers is te raden door het simpelweg te proberen.
+ *  Vijf pogingen en dan een minuut wachten maakt dat onbegonnen werk, en
+ *  hindert iemand die zich één keer vertikt niet.
+ *
+ *  De teller staat op het nummer dat is ingetoetst en niet op de persoon:
+ *  bij een fout nummer weten we immers niet wie het probeerde.
+ * ------------------------------------------------------------------ */
+
+const MAX_POGINGEN = 5
+const WACHTTIJD_MS = 60_000
+
+const pogingenKey = 'pogingen'
+
+interface Pogingen { aantal: number; laatste: number }
+
+async function pogingen(): Promise<Pogingen> {
+  return getMeta<Pogingen>(pogingenKey, { aantal: 0, laatste: 0 })
+}
+
+/** Hoeveel milliseconden er nog gewacht moet worden. 0 = mag proberen. */
+export async function wachttijd(): Promise<number> {
+  const p = await pogingen()
+  if (p.aantal < MAX_POGINGEN) return 0
+  return Math.max(0, WACHTTIJD_MS - (Date.now() - p.laatste))
+}
+
+async function misgetoetst() {
+  const p = await pogingen()
+  await setMeta(pogingenKey, { aantal: p.aantal + 1, laatste: Date.now() })
+}
+
+async function gelukt() {
+  await setMeta(pogingenKey, { aantal: 0, laatste: 0 })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Herkennen
+ * ------------------------------------------------------------------ */
+
+export type HerkenResultaat =
+  | { ok: true; user: User }
+  | {
+      ok: false
+      reden: 'onbekend' | 'geblokkeerd' | 'inactief' | 'dubbel' | 'geen-nummer'
+      wachtMs?: number
+      /** Bij 'dubbel': wie er allemaal op dit nummer staan. */
+      namen?: string[]
+    }
+
+/**
+ * Wie hoort bij dit nummer?
+ *
+ * Geen naam kiezen meer vooraf: een personeelsnummer is uniek, dus het nummer
+ * alleen is genoeg. Dat is aan een balie ook een handeling minder.
+ *
+ * Staat hetzelfde nummer bij twee mensen, dan weigeren we het. Gokken welke
+ * van de twee bedoeld is zou betekenen dat de bon en de urenstaat op de
+ * verkeerde naam komen, en dat merkt niemand tot het over geld gaat.
+ */
+export async function herkenOpNummer(ingetoetst: string): Promise<HerkenResultaat> {
+  const wacht = await wachttijd()
+  if (wacht > 0) return { ok: false, reden: 'geblokkeerd', wachtMs: wacht }
+
+  const zoek = normaliseerNummer(ingetoetst)
+  if (!zoek) return { ok: false, reden: 'onbekend' }
+
+  const alles = await db.users.toArray()
+  const treffers = alles.filter((u) => sleutelsVan(u).includes(zoek))
+
+  if (!treffers.length) {
+    await misgetoetst()
+    return { ok: false, reden: 'onbekend' }
+  }
+
+  const actief = treffers.filter((u) => u.active)
+  if (!actief.length) {
+    await gelukt()
+    return { ok: false, reden: 'inactief' }
+  }
+
+  if (actief.length > 1) {
+    // Geen rem hierop: het nummer is juist wél gevonden. Dit is een probleem
+    // in de administratie, niet iemand die staat te gokken.
+    return {
+      ok: false,
+      reden: 'dubbel',
+      namen: actief.map((u) => u.name),
+    }
+  }
+
+  await gelukt()
+  return { ok: true, user: actief[0] }
+}
+
+/** Wie hoort bij deze gescande badge? */
+export async function herkenBadge(token: string): Promise<HerkenResultaat> {
+  const pin = await db.pins.where('badgeToken').equals(token.trim()).first()
+  if (!pin) return { ok: false, reden: 'onbekend' }
+  const user = await db.users.get(pin.userId)
+  if (!user) return { ok: false, reden: 'onbekend' }
+  if (!user.active) return { ok: false, reden: 'inactief' }
+  await gelukt()
+  return { ok: true, user }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat er mis kan zijn met de nummers
+ *
+ *  Twee dingen maken aanmelden onmogelijk, en ze zijn beide te zien vóórdat
+ *  iemand ermee vastloopt: een medewerker zonder nummer, en twee mensen met
+ *  hetzelfde nummer. Beide horen in het dashboard rechtgezet te worden, onder
+ *  Personeel -- daarom melden we het en repareren we het hier niet.
+ * ------------------------------------------------------------------ */
+
+export interface NummerControle {
+  zonderNummer: User[]
+  dubbel: { nummer: string; namen: string[] }[]
+}
+
+export async function nummersNakijken(locationId?: string): Promise<NummerControle> {
+  const alles = (await db.users.toArray()).filter((u) =>
+    u.active &&
+    (!locationId || !u.locationId || u.locationId === locationId || u.allLocations))
+
+  const zonderNummer = alles.filter((u) => !(u.personnelNumber ?? '').trim())
+
+  const perSleutel = new Map<string, User[]>()
+  for (const u of alles) {
+    for (const s of sleutelsVan(u)) {
+      perSleutel.set(s, [...(perSleutel.get(s) ?? []), u])
+    }
+  }
+
+  const dubbel: NummerControle['dubbel'] = []
+  const gezien = new Set<string>()
+  for (const [sleutel, mensen] of perSleutel) {
+    if (mensen.length < 2) continue
+    // Dezelfde botsing kan onder twee sleutels opduiken (heel en cijfers);
+    // die melden we één keer.
+    const vinger = mensen.map((m) => m.id).sort().join('|')
+    if (gezien.has(vinger)) continue
+    gezien.add(vinger)
+    dubbel.push({ nummer: sleutel, namen: mensen.map((m) => m.name) })
+  }
+
+  return { zonderNummer, dubbel }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Badges
+ *
+ *  Een badge blijft bestaan naast het nummer: scannen is sneller dan tikken,
+ *  en op een sleutelhanger raak je hem minder makkelijk kwijt dan een nummer
+ *  uit je hoofd.
+ *
+ *  Hij hangt aan de tabel die eerder de codes bevatte. De kolommen voor die
+ *  code zijn leeg gebleven -- er wordt niets meer mee gecontroleerd.
+ * ------------------------------------------------------------------ */
 
 function hex(buf: ArrayBuffer): string {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-async function afleiden(code: string, salt: string, rondes: number): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', enc.encode(code), 'PBKDF2', false, ['deriveBits'])
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: enc.encode(salt), iterations: rondes, hash: 'SHA-256' },
-    key,
-    256,
-  )
-  return hex(bits)
-}
-
-/** Vergelijken zonder dat de tijd verraadt hoeveel tekens klopten. */
-function gelijk(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let verschil = 0
-  for (let i = 0; i < a.length; i++) verschil |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  return verschil === 0
-}
-
-/* ------------------------------------------------------------------ *
- *  Een code instellen
- * ------------------------------------------------------------------ */
-
-/** Waarom deze code niet kan, of null als hij mag. */
-export function codeProbleem(code: string): string | null {
-  if (!/^\d+$/.test(code)) return 'Een code bestaat alleen uit cijfers.'
-  if (code.length !== LENGTE) return `Een code is precies ${LENGTE} cijfers lang.`
-
-  if (new Set(code).size === 1) return 'Zes dezelfde cijfers is te makkelijk te raden.'
-
-  // Oplopend of aflopend, zoals 123456 of 987654.
-  const stappen = [...code].slice(1).map((c, i) => Number(c) - Number(code[i]))
-  if (stappen.every((s) => s === 1) || stappen.every((s) => s === -1)) {
-    return 'Een rijtje op of af is te makkelijk te raden.'
-  }
-
-  // Een geboortejaar of een datum als 010199 valt hier niet onder; dat is aan
-  // de medewerker. Wat we tegenhouden is wat iedereen als eerste probeert.
-  if (['000000', '123456', '654321', '111222', '112233'].includes(code)) {
-    return 'Deze code staat op elk lijstje van eerste pogingen.'
-  }
-
-  return null
-}
-
-/**
- * Zet de code van een medewerker.
- *
- * `doorId` is wie het instelt -- dat staat op de rij, zodat je later kunt zien
- * of iemand zijn eigen code koos of dat de leiding hem heeft gezet.
- */
-export async function codeInstellen(opts: {
-  userId: string
-  code: string
-  doorId?: string
-  moetWijzigen?: boolean
-}): Promise<PosPin> {
-  const probleem = codeProbleem(opts.code)
-  if (probleem) throw new Error(probleem)
-
-  const bestaand = await db.pins.where('userId').equals(opts.userId).first()
-  const salt = uid('zout')
-
-  const rij: PosPin = {
-    id: bestaand?.id ?? uid('pin'),
-    userId: opts.userId,
-    salt,
-    hash: await afleiden(opts.code, salt, RONDES),
-    iterations: RONDES,
-    // Een bestaande badge blijft geldig; die hoort bij de persoon, niet bij
-    // de code.
-    badgeToken: bestaand?.badgeToken,
-    mustChange: opts.moetWijzigen ?? false,
-    setBy: opts.doorId,
-    updatedAt: Date.now(),
-  }
-
-  await db.pins.put(rij)
-  await enqueue('pins', 'put', rij.id, rij)
-  await vergetenPogingen(opts.userId)
-  return rij
-}
-
-/** Maakt een nieuwe badge aan voor iemand, en geeft de code erop terug. */
+/** Maakt een nieuwe badge voor iemand, en geeft de code erop terug. */
 export async function badgeMaken(userId: string): Promise<string> {
   const bestaand = await db.pins.where('userId').equals(userId).first()
-  if (!bestaand) {
-    throw new Error('Stel eerst een persoonlijke code in; de badge hangt daaraan.')
-  }
 
   // Lang en willekeurig: een badge wordt gescand, niet ingetoetst, dus
   // leesbaarheid is geen eis en raadbaarheid wel een risico.
@@ -129,7 +243,18 @@ export async function badgeMaken(userId: string): Promise<string> {
   crypto.getRandomValues(bytes)
   const token = 'TWB-' + hex(bytes.buffer).toUpperCase().slice(0, 24)
 
-  const rij = { ...bestaand, badgeToken: token, updatedAt: Date.now() }
+  const rij: PosPin = {
+    id: bestaand?.id ?? uid('badge'),
+    userId,
+    salt: bestaand?.salt ?? '',
+    hash: bestaand?.hash ?? '',
+    iterations: bestaand?.iterations ?? 0,
+    badgeToken: token,
+    mustChange: false,
+    setBy: bestaand?.setBy,
+    updatedAt: Date.now(),
+  }
+
   await db.pins.put(rij)
   await enqueue('pins', 'put', rij.id, rij)
   return token
@@ -143,89 +268,8 @@ export async function badgeIntrekken(userId: string): Promise<void> {
   await enqueue('pins', 'put', rij.id, rij)
 }
 
-/* ------------------------------------------------------------------ *
- *  Te vaak misgetoetst
- *
- *  Zonder rem is zes cijfers aan een kassa met een rij ervoor nog steeds
- *  weinig: iemand die er lang genoeg staat, tikt ze allemaal. Vijf pogingen
- *  en dan een minuut wachten maakt dat onbegonnen werk, en hindert iemand die
- *  zich één keer vertikt niet.
- * ------------------------------------------------------------------ */
-
-const MAX_POGINGEN = 5
-const WACHTTIJD_MS = 60_000
-
-const pogingenKey = (userId: string) => `pogingen:${userId}`
-
-interface Pogingen { aantal: number; laatste: number }
-
-async function pogingen(userId: string): Promise<Pogingen> {
-  return getMeta<Pogingen>(pogingenKey(userId), { aantal: 0, laatste: 0 })
-}
-
-async function vergetenPogingen(userId: string) {
-  await setMeta(pogingenKey(userId), { aantal: 0, laatste: 0 })
-}
-
-/** Hoeveel milliseconden iemand nog moet wachten. 0 = mag proberen. */
-export async function wachttijd(userId: string): Promise<number> {
-  const p = await pogingen(userId)
-  if (p.aantal < MAX_POGINGEN) return 0
-  return Math.max(0, WACHTTIJD_MS - (Date.now() - p.laatste))
-}
-
-/* ------------------------------------------------------------------ *
- *  Herkennen
- * ------------------------------------------------------------------ */
-
-export type HerkenResultaat =
-  | { ok: true; user: User }
-  | { ok: false; reden: 'onbekend' | 'geblokkeerd' | 'geen-code' | 'inactief'; wachtMs?: number }
-
-/**
- * Wie hoort bij deze code?
- *
- * De code alleen is niet genoeg om iemand te vinden -- twee mensen kunnen
- * dezelfde zes cijfers kiezen. Daarom kiest de medewerker eerst zijn naam en
- * toetst hij daarna zijn code. Dat is aan een kassa ook sneller dan een
- * personeelsnummer intoetsen.
- */
-export async function herken(userId: string, code: string): Promise<HerkenResultaat> {
-  const user = await db.users.get(userId)
-  if (!user) return { ok: false, reden: 'onbekend' }
-  if (!user.active) return { ok: false, reden: 'inactief' }
-
-  const wacht = await wachttijd(userId)
-  if (wacht > 0) return { ok: false, reden: 'geblokkeerd', wachtMs: wacht }
-
-  const pin = await db.pins.where('userId').equals(userId).first()
-  if (!pin) return { ok: false, reden: 'geen-code' }
-
-  const afgeleid = await afleiden(code, pin.salt, pin.iterations || RONDES)
-  if (!gelijk(afgeleid, pin.hash)) {
-    const p = await pogingen(userId)
-    await setMeta(pogingenKey(userId), {
-      aantal: p.aantal + 1,
-      laatste: Date.now(),
-    })
-    return { ok: false, reden: 'onbekend' }
-  }
-
-  await vergetenPogingen(userId)
-  return { ok: true, user }
-}
-
-/** Wie hoort bij deze gescande badge? */
-export async function herkenBadge(token: string): Promise<HerkenResultaat> {
-  const pin = await db.pins.where('badgeToken').equals(token.trim()).first()
-  if (!pin) return { ok: false, reden: 'onbekend' }
-  const user = await db.users.get(pin.userId)
-  if (!user) return { ok: false, reden: 'onbekend' }
-  if (!user.active) return { ok: false, reden: 'inactief' }
-  return { ok: true, user }
-}
-
-/** Heeft deze medewerker al een code? */
-export async function heeftCode(userId: string): Promise<boolean> {
-  return Boolean(await db.pins.where('userId').equals(userId).first())
+/** Heeft deze medewerker een badge? */
+export async function heeftBadge(userId: string): Promise<boolean> {
+  const rij = await db.pins.where('userId').equals(userId).first()
+  return Boolean(rij?.badgeToken)
 }

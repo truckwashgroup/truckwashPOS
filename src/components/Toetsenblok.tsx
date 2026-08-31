@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Delete } from 'lucide-react'
 
 /* ------------------------------------------------------------------ *
@@ -20,7 +20,8 @@ interface Props {
   /** Meer dan dit aantal cijfers kan er niet in. */
   maxLengte?: number
   onKlaar?: () => void
-  klaarTekst?: string
+  /** Tekst of icoon op de OK-toets. */
+  klaarTekst?: ReactNode
   klaarUit?: boolean
   /** Toetsenbord van het apparaat ook laten meedoen. */
   toetsenbord?: boolean

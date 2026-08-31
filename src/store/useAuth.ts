@@ -4,7 +4,7 @@ import { db, getMeta, setMeta } from '../lib/db'
 import { rememberOfflineLogin, verifyOfflineLogin } from '../lib/offlineAuth'
 import { storageGet, storageRemove, storageSet } from '../lib/storage'
 import { LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
-import { herken, herkenBadge } from '../lib/code'
+import { herkenBadge, herkenOpNummer } from '../lib/code'
 import type { User } from '../lib/types'
 
 /* ------------------------------------------------------------------ *
@@ -20,9 +20,9 @@ import type { User } from '../lib/types'
  *
  *  De medewerker Wie er op dit moment achter de kassa staat. Dat wisselt de
  *                hele dag door, en dat is precies waarom het niet aan het
- *                apparaataccount kan hangen. Hij meldt zich met zijn eigen
- *                code of badge; zijn naam komt op de bon en zijn uren gaan
- *                naar het dashboard.
+ *                apparaataccount kan hangen. Hij meldt zich met zijn
+ *                personeelsnummer of zijn badge; zijn naam komt op de bon en
+ *                zijn uren gaan naar het dashboard.
  *
  *  De medewerker valt er na een tijd stilte vanzelf af. Zonder dat zou de
  *  volgende chauffeur worden afgerekend op naam van iemand die al naar huis
@@ -50,7 +50,7 @@ interface AuthStore {
   login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
 
-  meldAan: (userId: string, code: string) => Promise<{ ok: boolean; fout?: string }>
+  meldAan: (nummer: string) => Promise<{ ok: boolean; fout?: string }>
   meldAanMetBadge: (token: string) => Promise<{ ok: boolean; fout?: string }>
   meldAf: () => void
   raakAan: () => void
@@ -196,8 +196,8 @@ export const useAuth = create<AuthStore>((set, get) => ({
 
   /* ---------------- de medewerker ---------------- */
 
-  meldAan: async (userId, code) => {
-    const uitslag = await herken(userId, code)
+  meldAan: async (nummer) => {
+    const uitslag = await herkenOpNummer(nummer)
     if (uitslag.ok) {
       set({ operator: uitslag.user, laatsteActie: Date.now() })
       return { ok: true }
@@ -207,11 +207,16 @@ export const useAuth = create<AuthStore>((set, get) => ({
       uitslag.reden === 'geblokkeerd'
         ? `Te vaak misgetoetst. Probeer het over ${
             Math.ceil((uitslag.wachtMs ?? 0) / 1000)} seconden weer.`
-        : uitslag.reden === 'geen-code'
-          ? 'Voor deze medewerker is nog geen code ingesteld. Laat de leiding er een zetten.'
-          : uitslag.reden === 'inactief'
-            ? 'Deze medewerker staat niet meer op de loonlijst.'
-            : 'Die code klopt niet.'
+        : uitslag.reden === 'inactief'
+          ? 'Deze medewerker staat niet meer op de loonlijst.'
+          : uitslag.reden === 'dubbel'
+            // Dit is geen fout van wie er staat, dus zeggen we wat er aan de
+            // hand is en waar het rechtgezet wordt.
+            ? `Dit nummer staat bij meer dan één medewerker (${
+                (uitslag.namen ?? []).join(', ')}). Laat het in het dashboard ` +
+              'onder Personeel rechtzetten; zolang het dubbel staat, komt de ' +
+              'bon op de verkeerde naam.'
+            : 'Dat personeelsnummer is niet bekend op deze vestiging.'
 
     return { ok: false, fout }
   },
