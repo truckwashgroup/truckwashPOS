@@ -1273,6 +1273,60 @@ check('een nul en een één worden ook opgemerkt',
 check('een leeg veld zegt wat je moet doen',
   (koppelen.koppelcodeProbleem('') ?? '').includes('dashboard'))
 
+/* ---- en wat de kassa zegt als het versturen mislukt ----
+ *
+ * Dit is de plek waar het één keer echt misging. De kassa zei "Edge Function
+ * returned a non-2xx status code" terwijl de serverfunctie simpelweg niet
+ * uitgerold was. Dat is geen melding maar een raadsel: je weet niet of de code
+ * verlopen is, of de lijn eruit ligt, of er iets op de server mist.
+ */
+
+check('onze eigen uitleg gaat voor alles',
+  koppelen.foutUitleg({
+    status: 422,
+    body: { ok: false, reden: 'Deze code is al gebruikt.' },
+  }) === 'Deze code is al gebruikt.')
+
+const nietUitgerold = koppelen.foutUitleg({
+  status: 404,
+  body: { code: 'NOT_FOUND', message: 'Requested function was not found' },
+})
+check('een 404 zonder eigen uitleg betekent: de functie staat er niet',
+  nietUitgerold.includes('staat nog niet op de server'), nietUitgerold)
+check('en zegt hoe je dat oplost',
+  nietUitgerold.includes('npm run functions'), nietUitgerold)
+check('en niet dat de code fout is',
+  !nietUitgerold.toLowerCase().includes('code die je intikte is'), nietUitgerold)
+
+/*
+ * De valkuil eronder: onze eigen functie gaf een onbekende code eerst óók een
+ * 404 terug. Dan zijn die twee gevallen aan de status niet te onderscheiden.
+ * Nu is dat 422 -- en zelfs als het weer 404 wordt, wint `reden`.
+ */
+check('een 404 mét eigen uitleg blijft die eigen uitleg',
+  koppelen.foutUitleg({ status: 404, body: { reden: 'Deze code kent de database niet.' } })
+    === 'Deze code kent de database niet.')
+
+const dichteDeur = koppelen.foutUitleg({
+  status: 401,
+  body: { message: 'Missing authorization header' },
+})
+check('een 401 wijst naar de sleutelcontrole',
+  dichteDeur.includes('no-verify-jwt'), dichteDeur)
+
+const ietsAnders = koppelen.foutUitleg({
+  status: 500,
+  body: { message: 'boom' },
+})
+check('bij iets anders staat de code én wat de server zei erin',
+  ietsAnders.includes('500') && ietsAnders.includes('boom'), ietsAnders)
+
+check('platte tekst mag ook meekomen',
+  koppelen.foutUitleg({ status: 502, plat: 'Bad Gateway' }).includes('Bad Gateway'))
+
+check('en zonder iets bruikbaars blijft het eerlijk',
+  koppelen.foutUitleg({}).includes('geen uitleg'))
+
 /* ================================================================== */
 
 

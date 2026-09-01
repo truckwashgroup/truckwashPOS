@@ -233,17 +233,80 @@ export async function koppelMetCode(ruweCode: string): Promise<KoppelUitslag> {
   }
 }
 
-/** Haalt de uitleg uit een mislukte functieaanroep. */
-async function leesFout(error: unknown): Promise<string> {
-  const met = error as { context?: { json?: () => Promise<unknown> }; message?: string }
-  try {
-    const body = await met.context?.json?.()
-    const reden = (body as { reden?: string } | undefined)?.reden
-    if (reden) return reden
-  } catch {
-    /* geen leesbaar antwoord; dan de kale melding */
+/**
+ * Wat er van een mislukte functieaanroep aan de gebruiker verteld wordt.
+ *
+ * Los gezet en zonder netwerk eromheen, zodat de zelftest erbij kan -- want
+ * hier ging het één keer mis en dat was geen kleinigheid. Er stond alleen "pak
+ * `reden` uit het antwoord", en dat werkt zolang het antwoord van onze eigen
+ * functie komt. Kwam het van de poort ervoor, omdat de functie niet uitgerold
+ * was, dan stond er op de kassa "Edge Function returned a non-2xx status code".
+ * Dat is geen melding maar een raadsel: je weet niet of de code verlopen is, of
+ * de lijn eruit ligt, of er iets op de server mist -- en het lag aan het
+ * laatste.
+ */
+export function foutUitleg(input: {
+  status?: number
+  /** Het antwoord als het leesbare JSON was. */
+  body?: unknown
+  /** Het antwoord als platte tekst, als het geen JSON was. */
+  plat?: string
+  /** Wat de bibliotheek er zelf van maakte. */
+  message?: string
+}): string {
+  const veld = (naam: string) => {
+    const v = (input.body as Record<string, unknown> | null | undefined)?.[naam]
+    return typeof v === 'string' && v.trim() ? v.trim() : null
   }
-  return met.message ?? 'Koppelen lukte niet.'
+
+  // Onze eigen functie legt het altijd uit in `reden`. Die gaat voor alles.
+  const eigen = veld('reden')
+  if (eigen) return eigen
+
+  if (input.status === 404) {
+    return 'De serverfunctie "kassa-koppelen" staat nog niet op de server. Dat ' +
+           'is geen fout in de code die je intikte. Laat hem uitrollen met ' +
+           '"npm run functions" in de dashboard-map; daarna werkt koppelen meteen.'
+  }
+
+  if (input.status === 401 || input.status === 403) {
+    return `De server weigert dit verzoek al voordat het bij de functie is (code ${
+      input.status}). Dat betekent bijna altijd dat kassa-koppelen is uitgerold ` +
+      'zonder --no-verify-jwt: een kassa die nog niet gekoppeld is heeft geen ' +
+      'inlog, dus die deur moet open staan. Rol hem opnieuw uit met ' +
+      '"npm run functions".'
+  }
+
+  const anders = veld('message') ?? veld('error') ?? veld('msg')
+  const plat = input.plat && input.plat.length < 200 ? input.plat.trim() : null
+  const kern = anders ?? plat ?? input.message
+
+  return `Koppelen lukte niet${input.status ? ` (code ${input.status})` : ''}: ${
+    kern ?? 'de server gaf geen uitleg'}.`
+}
+
+/** Leest het antwoord van een mislukte aanroep uit en laat foutUitleg praten. */
+async function leesFout(error: unknown): Promise<string> {
+  const met = error as {
+    context?: { status?: number; text?: () => Promise<string> }
+    message?: string
+  }
+
+  let plat = ''
+  let body: unknown = null
+  try {
+    /*
+     * Als tekst ophalen en daarna zelf ontleden. Het antwoord kan maar één keer
+     * gelezen worden; probeer je json() en mislukt dat, dan is text() daarna
+     * leeg -- en dan heb je niets meer om te laten zien.
+     */
+    plat = (await met.context?.text?.()) ?? ''
+    if (plat) body = JSON.parse(plat)
+  } catch {
+    /* geen JSON; dan blijft de platte tekst over */
+  }
+
+  return foutUitleg({ status: met.context?.status, body, plat, message: met.message })
 }
 
 /* ------------------------------------------------------------------ *
