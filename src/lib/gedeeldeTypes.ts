@@ -78,6 +78,17 @@ export interface User {
   manages?: string[]
   /** Hoofdkantoor: ziet en mag alles, op alle vestigingen */
   allLocations?: boolean
+
+  /**
+   * Dit dossier hoort bij een kassa, niet bij een mens.
+   *
+   * Een gekoppelde kassa heeft een eigen inlog, en daar hangt een dossier aan
+   * omdat de vestiging daarin staat -- en die bepaalt wat het apparaat mag
+   * zien. Zonder dit vlaggetje staat "Kassa KAS-UTR-1" tussen het personeel in
+   * het rooster, in de urenstaat en in de lijst waaruit je aan de kassa iemand
+   * kiest.
+   */
+  isDevice?: boolean
 }
 
 export type LocationKind = 'vestiging' | 'hoofdkantoor'
@@ -224,7 +235,8 @@ export type Permission =
   /* postbus */
   | 'mail.read' | 'mail.send'
   /* kassa */
-  | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.manage'
+  | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.safe'
+  | 'pos.manage'
   /* beheer */
   | 'admin.settings' | 'admin.audit'
 
@@ -319,6 +331,7 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'pos.discount',      group: 'Kassa',      label: 'Korting geven',        hint: 'Een regel of de hele bon afprijzen.' },
   { key: 'pos.refund',        group: 'Kassa',      label: 'Bon crediteren',       hint: 'Een afgerekende bon terugdraaien met een creditbon.', sensitive: true },
   { key: 'pos.cash',          group: 'Kassa',      label: 'Lade en dagafsluiting', hint: 'Kas openen, tellen, afstorten en de dag afsluiten.', sensitive: true },
+  { key: 'pos.safe',          group: 'Kassa',      label: 'Kluis',                hint: 'De kluis openen, afstorten, wisselgeld halen en de kluis tellen.', sensitive: true },
   { key: 'pos.manage',        group: 'Kassa',      label: 'Kassa beheren',        hint: "Artikelen, prijzen, kaarten, codes en de printerinstellingen.", sensitive: true },
 
   { key: 'admin.settings',    group: 'Beheer',     label: 'Instellingen',         hint: 'Tarieven, openingstijden en app-instellingen.', sensitive: true },

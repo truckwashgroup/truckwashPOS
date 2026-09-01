@@ -192,6 +192,10 @@ export interface NummerControle {
 export async function nummersNakijken(locationId?: string): Promise<NummerControle> {
   const alles = (await db.users.toArray()).filter((u) =>
     u.active &&
+    // Een kassa heeft een eigen dossier, want daar hangt de vestiging aan.
+    // Het is geen mens: hij heeft geen personeelsnummer en hoort dus niet in
+    // de lijst "medewerkers zonder nummer" te staan.
+    !u.isDevice &&
     (!locationId || !u.locationId || u.locationId === locationId || u.allLocations))
 
   const zonderNummer = alles.filter((u) => !(u.personnelNumber ?? '').trim())

@@ -111,6 +111,9 @@ const TABLES: Record<EntityName, string> = {
   subscriptions: 'pos_subscriptions',
   subscriptionUses: 'pos_subscription_uses',
   pins: 'pos_pins',
+  safes: 'pos_safes',
+  safeMoves: 'pos_safe_moves',
+  devices: 'pos_devices',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */
@@ -127,6 +130,14 @@ const OVERRIDES: Partial<Record<EntityName, Record<string, string>>> = {
 const JOURNAAL: EntityName[] = [
   'sales', 'saleLines', 'payments', 'cashSessions', 'cashMoves',
   'subscriptionUses', 'timeEntries', 'stockMovements', 'washJobs',
+  /*
+   * De kluis hoort hier ook bij, en met een kanttekening: het saldo wordt
+   * vanaf de laatste telling opgeteld. Valt die telling buiten de horizon,
+   * dan mist de kassa zijn ijkpunt. Zestig dagen zonder een kluis te tellen
+   * is bij een kassa geen normale gang van zaken -- en het scherm zegt het
+   * er hardop bij als er lang niet geteld is.
+   */
+  'safeMoves',
 ]
 
 const HORIZON_DAGEN = 60

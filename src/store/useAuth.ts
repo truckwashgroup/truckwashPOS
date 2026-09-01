@@ -5,6 +5,9 @@ import { rememberOfflineLogin, verifyOfflineLogin } from '../lib/offlineAuth'
 import { storageGet, storageRemove, storageSet } from '../lib/storage'
 import { LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
 import { herkenBadge, herkenOpNummer } from '../lib/code'
+import {
+  bewaardeInlog, inlogBewaren, koppelMetCode, type KoppelUitslag,
+} from '../lib/koppelen'
 import type { User } from '../lib/types'
 
 /* ------------------------------------------------------------------ *
@@ -47,6 +50,13 @@ interface AuthStore {
   laatsteActie: number
 
   restore: () => Promise<void>
+  /**
+   * Dit apparaat koppelen met een eenmalige code.
+   *
+   * Vervangt het inloggen met een medewerkersaccount. Zie lib/koppelen.ts voor
+   * waarom dat beter is dan iemands wachtwoord op een tablet achter de balie.
+   */
+  koppel: (code: string) => Promise<KoppelUitslag>
   login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
 
@@ -79,6 +89,7 @@ async function cacheKlaarzetten(userId: string) {
       db.cashSessions.clear(), db.cashMoves.clear(),
       db.subscriptions.clear(), db.subscriptionUses.clear(),
       db.pins.clear(), db.timeEntries.clear(), db.stockMovements.clear(),
+      db.safes.clear(), db.safeMoves.clear(), db.devices.clear(),
     ])
   }
 
@@ -98,19 +109,75 @@ export const useAuth = create<AuthStore>((set, get) => ({
   restore: async () => {
     try {
       const raw = await storageGet(SESSION_KEY)
-      if (!raw) return
-      const sessie = JSON.parse(raw) as { userId: string }
-      const user = await db.users.get(sessie.userId)
-      if (user && user.active) {
-        set({ apparaat: user })
-        setSyncEnabled(true)
-      } else {
+      if (raw) {
+        const sessie = JSON.parse(raw) as { userId: string }
+        const user = await db.users.get(sessie.userId)
+        if (user && user.active) {
+          set({ apparaat: user })
+          setSyncEnabled(true)
+          return
+        }
         await storageRemove(SESSION_KEY)
       }
+
+      /*
+       * Geen sessie, maar wel bewaarde inloggegevens van dit apparaat.
+       *
+       * Dat gebeurt als de opslag is opgeschoond of als de kassa lang uit
+       * heeft gestaan. Zonder dit stond er dan een koppelscherm terwijl het
+       * apparaat gewoon gekoppeld is -- en dan moet iemand op zaterdagochtend
+       * het kantoor bellen voor een nieuwe code. Zie lib/koppelen.ts voor
+       * waarom die gegevens hier mogen staan.
+       */
+      const inlog = await bewaardeInlog()
+      if (inlog) {
+        const gelukt = await get().login(inlog.email, inlog.wachtwoord)
+        if (gelukt) {
+          set({ error: null })
+          return
+        }
+      }
     } catch {
-      /* corrupte sessie: dan richt iemand de kassa opnieuw in */
+      /* corrupte sessie: dan koppelt iemand de kassa opnieuw */
     } finally {
       set({ booting: false })
+    }
+  },
+
+  koppel: async (code) => {
+    set({ busy: true, error: null })
+    try {
+      const uitslag = await koppelMetCode(code)
+      if (!uitslag.ok || !uitslag.inlog) {
+        set({ busy: false, error: uitslag.reden ?? 'Koppelen lukte niet.' })
+        return uitslag
+      }
+
+      /*
+       * Bewaren vóór het inloggen, niet erna. Loopt het inloggen mis op iets
+       * tijdelijks -- een lijn die net wegvalt -- dan is de code al opgebruikt
+       * en zou het apparaat zonder deze regel voorgoed vastzitten. Nu probeert
+       * hij het bij de volgende start gewoon opnieuw.
+       */
+      await inlogBewaren(uitslag.inlog)
+
+      const gelukt = await get().login(uitslag.inlog.email, uitslag.inlog.wachtwoord)
+      if (!gelukt) {
+        set({ busy: false })
+        return {
+          ok: false,
+          reden: get().error ??
+            'De kassa is gekoppeld, maar inloggen lukte niet. Start de kassa ' +
+            'opnieuw; hij probeert het dan zelf nog een keer.',
+        }
+      }
+
+      set({ busy: false, error: null })
+      return uitslag
+    } catch (e) {
+      const reden = e instanceof Error ? e.message : 'Koppelen mislukte.'
+      set({ busy: false, error: reden })
+      return { ok: false, reden }
     }
   },
 
@@ -165,8 +232,9 @@ export const useAuth = create<AuthStore>((set, get) => ({
       if (!user) {
         set({
           error:
-            'Inloggen lukte, maar er hangt geen personeelsdossier aan dit account. ' +
-            'Laat het management het toevoegen met hetzelfde e-mailadres.',
+            'Inloggen lukte, maar er hangt geen dossier aan dit account. Bij een ' +
+            'gekoppelde kassa hoort dat er te zijn: laat het kantoor dit apparaat ' +
+            'intrekken en opnieuw koppelen met een nieuwe code.',
           busy: false,
         })
         return false

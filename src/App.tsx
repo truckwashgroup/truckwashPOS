@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Clock, CloudOff, Download, ListMusic, LogOut, Moon, Music, Receipt,
+  Clock, CloudOff, Download, ListMusic, Lock, LogOut, Moon, Music, Receipt,
   RefreshCw, Settings, ShoppingCart, Sun, Wallet,
 } from 'lucide-react'
 import logo from './assets/kassa-icoon.png'
@@ -11,15 +11,19 @@ import Aanmelden from './screens/Aanmelden'
 import Beheer from './screens/Beheer'
 import Bonnen from './screens/Bonnen'
 import Dagafsluiting from './screens/Dagafsluiting'
-import Inrichten from './screens/Inrichten'
 import Kassa from './screens/Kassa'
+import Kluis from './screens/Kluis'
+import Koppelen from './screens/Koppelen'
 import Klok from './screens/Klok'
 import Muziek from './screens/Muziek'
 import Speler from './screens/Speler'
 import VideoScherm from './components/VideoScherm'
+import OpSlot from './components/OpSlot'
 import { time } from './lib/format'
 import { useTheme } from './lib/theme'
 import { huidigeRegister } from './lib/kassa'
+import { apparaatGezien, huidigApparaat } from './lib/koppelen'
+import { can } from './lib/permissions'
 import { startSyncEngine, useSync } from './lib/sync'
 import { useUpdates } from './lib/updates'
 import { startAfmeldKlok, useAuth } from './store/useAuth'
@@ -31,8 +35,11 @@ import { useSpeler, videoIsKlaar } from './store/useSpeler'
  *
  *  Drie poorten, en ze staan in deze volgorde met een reden:
  *
- *  1. Is dit apparaat ingericht? Zonder account en zonder kassa is er niets
- *     te doen -- dan weet de kassa niet welke vestiging dit is.
+ *  1. Is dit apparaat gekoppeld? Zonder koppeling is er niets te doen -- dan
+ *     weet de kassa niet welke vestiging dit is en mag hij niets ophalen.
+ *     Tussen die poort en de volgende zit nog een tussenstand: het kantoor kan
+ *     dit apparaat op slot zetten of eruit gooien, en dan komt er niemand
+ *     langs -- ook niet om te klokken.
  *  2. Wie staat erachter? Zonder naam geen bon, want een bon zonder
  *     medewerker is een bon waar niemand voor staat.
  *  3. Daarna het gewone werk.
@@ -41,7 +48,7 @@ import { useSpeler, videoIsKlaar } from './store/useSpeler'
  *  inklokken hoeft niet eerst kassabediende te worden.
  * ------------------------------------------------------------------ */
 
-type Blad = 'kassa' | 'klok' | 'bonnen' | 'kas' | 'muziek' | 'speler' | 'beheer'
+type Blad = 'kassa' | 'klok' | 'bonnen' | 'kas' | 'kluis' | 'muziek' | 'speler' | 'beheer'
 
 /**
  * Dit venster is het tweede scherm, niet de kassa.
@@ -72,6 +79,13 @@ function Kassascherm() {
 
   const register = useLiveQuery(() => huidigeRegister(), [], undefined)
 
+  /*
+   * Wat het kantoor van dit apparaat vindt. Undefined is "nog niet gekeken";
+   * dat onderscheid is nodig, want een kassa die nog niet gesynchroniseerd
+   * heeft mag niet op slot gaan omdat de lijst nog leeg is.
+   */
+  const apparaatRegel = useLiveQuery(() => huidigApparaat(), [], undefined)
+
   /* ---- opstarten ---- */
   useEffect(() => {
     void restore()
@@ -91,6 +105,19 @@ function Kassascherm() {
     if (apparaat) startSyncEngine()
   }, [apparaat])
 
+  /*
+   * Bijhouden dat dit apparaat er nog is, zodat het in de lijst van het
+   * kantoor niet dood lijkt. Meer mag een kassa van zijn eigen regel niet
+   * veranderen -- blokkeren en intrekken gebeurt in het dashboard, en dat
+   * houdt de database ook echt tegen.
+   */
+  useEffect(() => {
+    if (!apparaat) return
+    void apparaatGezien()
+    const tik = setInterval(() => void apparaatGezien(), 15 * 60_000)
+    return () => clearInterval(tik)
+  }, [apparaat?.id])
+
   /* Een nieuwe medewerker begint op het kassascherm, niet waar de vorige
      gebleven was. */
   useEffect(() => {
@@ -109,18 +136,34 @@ function Kassascherm() {
     )
   }
 
-  /* ---- poort 1: ingericht? ---- */
+  /* ---- poort 1: gekoppeld? ---- */
   if (!apparaat || !register) {
     return (
       <>
-        <Inrichten />
+        <Koppelen />
         {/*
-          Zonder dit is elke melding tijdens het inrichten onzichtbaar.
+          Zonder dit is elke melding tijdens het koppelen onzichtbaar.
           Meldingen komen rechtsonder in beeld, en die hoek bestond in deze
-          poort niet -- dus leek een geweigerde kassacode op "er gebeurt
-          niets als ik op de knop druk". Dat is het ergste soort fout: er is
-          wel een uitleg, hij komt alleen nergens aan.
+          poort niet -- dus leek een geweigerde code op "er gebeurt niets als
+          ik op de knop druk". Dat is het ergste soort fout: er is wel een
+          uitleg, hij komt alleen nergens aan.
         */}
+        <Toasts />
+      </>
+    )
+  }
+
+  /* ---- poort 1b: mag dit apparaat nog? ----
+   *
+   * Alleen op slot bij een regel die er echt is en die het zegt. Staat er nog
+   * niets in de cache, dan doet de kassa gewoon zijn werk: een kassa die op
+   * slot gaat omdat de eerste synchronisatie nog loopt, is erger dan een kassa
+   * die een minuut te lang open staat.
+   */
+  if (apparaatRegel && apparaatRegel.status !== 'actief') {
+    return (
+      <>
+        <OpSlot apparaat={apparaatRegel} />
         <Toasts />
       </>
     )
@@ -153,6 +196,7 @@ function Kassascherm() {
         {!alleenKlok && blad === 'kassa' && <Kassa register={register} />}
         {!alleenKlok && blad === 'bonnen' && <Bonnen register={register} />}
         {!alleenKlok && blad === 'kas' && <Dagafsluiting register={register} />}
+        {!alleenKlok && blad === 'kluis' && <Kluis register={register} />}
         {!alleenKlok && blad === 'muziek' && <Muziek />}
         {!alleenKlok && blad === 'speler' && <Speler />}
         {!alleenKlok && blad === 'beheer' && <Beheer register={register} />}
@@ -189,11 +233,22 @@ function Balk({
     return () => clearInterval(t)
   }, [])
 
+  /*
+   * De kluis staat er alleen als deze medewerker erbij mag.
+   *
+   * Een tab die je wel ziet maar niet in kunt, is een uitnodiging om te vragen
+   * waarom niet -- en aan een balie is dat een gesprek dat niemand wil hebben
+   * met een chauffeur die staat te wachten. Wie het recht heeft, ziet hem;
+   * wie hem mist en denkt dat hij erbij hoort, weet bij wie hij moet zijn.
+   */
   const tabs: { id: Blad; label: string; icoon: JSX.Element }[] = [
     { id: 'kassa', label: 'Kassa', icoon: <ShoppingCart size={16} /> },
     { id: 'klok', label: 'Klok', icoon: <Clock size={16} /> },
     { id: 'bonnen', label: 'Bonnen', icoon: <Receipt size={16} /> },
     { id: 'kas', label: 'Kas', icoon: <Wallet size={16} /> },
+    ...(can(operator, 'pos.safe')
+      ? [{ id: 'kluis' as Blad, label: 'Kluis', icoon: <Lock size={16} /> }]
+      : []),
     { id: 'muziek', label: 'Muziek', icoon: <Music size={16} /> },
     { id: 'speler', label: 'Speler', icoon: <ListMusic size={16} /> },
     { id: 'beheer', label: 'Beheer', icoon: <Settings size={16} /> },

@@ -67,6 +67,9 @@ const kassa = await import('../src/lib/kassa')
 const kas = await import('../src/lib/kas')
 const { bonOpmaken, alsTekst, bonGegevens } = await import('../src/lib/bon')
 const { PUSH_ORDER } = await import('../src/lib/sync')
+const munten = await import('../src/lib/munten')
+const kluis = await import('../src/lib/kluis')
+const koppelen = await import('../src/lib/koppelen')
 const { vergelijkVersies } = await import('../src/lib/hardware/apkUpdate')
 
 type User = import('../src/lib/types').User
@@ -950,7 +953,327 @@ const kaartGegevens = await bonGegevens(bon3.bon.id)
 check('de kaartcode staat op de bon waarop hij verkocht is',
   alsTekst(bonOpmaken(kaartGegevens!), 42).includes(kaart.code))
 
+/* ================================================================== *
+ *  12. Briefjes en munten
+ *
+ *  Het rekenwerk onder de kluis. Dit is de plek waar een fout geld kost
+ *  zonder dat iemand het merkt: als muntenBedrag() er een cent naast zit,
+ *  klopt elke telling een beetje niet en gaat iemand zoeken in de verkeerde
+ *  hoek.
+ * ================================================================== */
+
+console.log('\n12. Briefjes en munten')
+
+check('drie briefjes van honderd en twee van twintig is 340',
+  munten.muntenBedrag({ b100: 3, b20: 2 }) === 340)
+
+check('een briefje van vijf is niet een munt van vijf cent',
+  munten.muntWaarde('b5') === 5 && munten.muntWaarde('m5') === 0.05)
+
+/*
+ * De reden dat elke tussenstap op centen afrondt. Drie keer tien cent is in
+ * JavaScript 0.30000000000000004; twintig keer vijf cent net zo. Eén cent
+ * verschil per telling is genoeg om een kluis nooit meer te laten kloppen.
+ */
+check('kleingeld telt op zonder rekenrestjes',
+  munten.muntenBedrag({ m10: 3 }) === 0.3 &&
+  munten.muntenBedrag({ m5: 20 }) === 1 &&
+  munten.muntenBedrag({ m1: 7, m2: 4 }) === 0.15)
+
+check('een onbekende coupure is nul en geen fout',
+  munten.muntWaarde('b7') === 7 && munten.muntWaarde('rommel') === 0)
+
+check('optellen laat geen nullen achter',
+  JSON.stringify(munten.muntenOptellen({ b50: 1 }, { b50: 1 }, -1)) === '{}')
+
+check('aftrekken kan met dezelfde functie',
+  munten.muntenOptellen({ b50: 3, m200: 5 }, { b50: 1 }, -1).b50 === 2)
+
+const past = munten.muntenPassen({ b50: 3, m200: 10 }, { b50: 2 })
+check('twee van de drie briefjes halen mag', past.ok)
+
+const pastNiet = munten.muntenPassen({ b50: 3 }, { b50: 4 })
+check('vier van de drie kan niet', !pastNiet.ok && pastNiet.tekort.b50 === 1)
+
+/*
+ * Er wordt niet gewisseld, en dat is met opzet. Vijf briefjes van tien is
+ * hetzelfde bedrag als één van vijftig, maar niet hetzelfde als wat je in je
+ * hand hebt -- en het gaat hier om wat je in je hand hebt.
+ */
+const geenWissel = munten.muntenPassen({ b10: 5 }, { b50: 1 })
+check('hetzelfde bedrag in ander kleingeld telt niet als wisselen',
+  !geenWissel.ok && geenWissel.tekort.b50 === 1)
+
+check('opschonen gooit nullen en negatieven weg',
+  JSON.stringify(munten.muntenOpschonen({ b50: 2, b20: 0, m200: -3 })) === '{"b50":2}')
+
+check('opschonen laat halve briefjes niet staan',
+  munten.muntenOpschonen({ b50: 2.7 }).b50 === 2)
+
+check('de tekst leest als een opsomming',
+  munten.muntenTekst({ b100: 3, b20: 2 }) === '3x € 100, 2x € 20')
+
+check('en zegt "niets" als er niets is', munten.muntenTekst({}) === 'niets')
+
+/* ================================================================== *
+ *  13. De kluis
+ *
+ *  Twee dingen die bewezen moeten worden, want ze zijn de kern:
+ *
+ *  1. Het saldo volgt uit de bewegingen, en een telling is het ijkpunt.
+ *  2. Er kan niet meer uit dan erin zit.
+ *
+ *  En één die er praktisch bij hoort: de kluis en de kassalade blijven bij
+ *  elkaar. Een afstorting die in de kluis staat maar niet van de lade af is,
+ *  is geld dat lijkt te bestaan op twee plekken.
+ * ================================================================== */
+
+console.log('\n13. De kluis')
+
+const deKluis = {
+  id: 'kluis_test',
+  locationId: register.locationId,
+  name: 'Kluis Utrecht',
+  active: true,
+  updatedAt: Date.now(),
+}
+await db.safes.put(deKluis)
+
+check('de kluis van deze vestiging wordt gevonden',
+  (await kluis.kluisVanLocatie(register.locationId))?.id === deKluis.id)
+
+const kluisLeeg = await kluis.kluisStand(deKluis.id)
+check('een lege kluis staat op nul', kluisLeeg?.bedrag === 0)
+check('en heeft nooit geteld', !kluisLeeg?.laatsteTelling)
+
+await kluis.kluisBoeken({
+  kluis: deKluis, soort: 'van-bank',
+  munten: { b100: 3, b20: 2, m200: 10 }, door: baas,
+})
+
+const na1 = await kluis.kluisStand(deKluis.id)
+check('wat erin gaat komt erbij', na1?.bedrag === 360, String(na1?.bedrag))
+check('en staat per coupure in de kluis',
+  na1?.munten.b100 === 3 && na1?.munten.m200 === 10)
+
+/* ---- er kan niet meer uit dan erin zit ---- */
+
+let teveel = ''
+try {
+  await kluis.kluisBoeken({
+    kluis: deKluis, soort: 'naar-bank', munten: { b100: 4 }, door: baas,
+  })
+} catch (e) {
+  teveel = e instanceof Error ? e.message : String(e)
+}
+check('meer eruit halen dan erin zit wordt geweigerd',
+  teveel.includes('ligt er niet in'), teveel)
+check('en de melding zegt wat er precies mist', teveel.includes('1x € 100'), teveel)
+
+check('de kluis is er niet door veranderd',
+  (await kluis.kluisStand(deKluis.id))?.bedrag === 360)
+
+/*
+ * Bedrag klopt maar het kleingeld niet: dit is de fout die een gewone
+ * saldocontrole erdoor laat. Er ligt 360 in de kluis, dus 200 eruit "kan" --
+ * alleen niet in twee briefjes van honderd, want er zijn er drie en die zijn
+ * al niet het probleem. Vraag om vier briefjes van vijftig en het bedrag past
+ * ruim, maar de briefjes liggen er niet.
+ */
+let verkeerdKleingeld = ''
+try {
+  await kluis.kluisBoeken({
+    kluis: deKluis, soort: 'naar-bank', munten: { b50: 4 }, door: baas,
+  })
+} catch (e) {
+  verkeerdKleingeld = e instanceof Error ? e.message : String(e)
+}
+check('het bedrag past maar de briefjes liggen er niet',
+  verkeerdKleingeld.includes('ligt er niet in'), verkeerdKleingeld)
+
+/* ---- de lade en de kluis blijven bij elkaar ---- */
+
+const { sessie: kluisSessie } = await kas.kasOpenen({
+  register, door: baas, startbedrag: 200,
+})
+
+const afgestort = await kluis.afstortenNaarKluis({
+  kluis: deKluis, register, munten: { b50: 2 }, door: baas,
+})
+check('afstorten telt op in de kluis', afgestort.bedrag === 100)
+
+const kluisNaAfstorten = await kluis.kluisStand(deKluis.id)
+check('en de kluis staat op 460', kluisNaAfstorten?.bedrag === 460,
+  String(kluisNaAfstorten?.bedrag))
+
+const ladeNaAfstorten = await kas.kasStand(kluisSessie.id)
+check('en het is ook echt van de lade af',
+  ladeNaAfstorten?.verwachtContant === 100, String(ladeNaAfstorten?.verwachtContant))
+
+const gehaald = await kluis.wisselgeldUitKluis({
+  kluis: deKluis, register, munten: { m200: 10 }, door: baas,
+})
+check('wisselgeld halen gaat de andere kant op', gehaald.bedrag === 20)
+
+const kluisNaHalen = await kluis.kluisStand(deKluis.id)
+const ladeNaHalen = await kas.kasStand(kluisSessie.id)
+check('uit de kluis', kluisNaHalen?.bedrag === 440, String(kluisNaHalen?.bedrag))
+check('en in de lade', ladeNaHalen?.verwachtContant === 120,
+  String(ladeNaHalen?.verwachtContant))
+
+/*
+ * En de rem blijft ook staan bij een handeling die twee boeken raakt. Zonder
+ * dit zou er wisselgeld in de lade kunnen komen dat nooit uit de kluis kwam.
+ */
+const ladeVoorMislukt = (await kas.kasStand(kluisSessie.id))?.verwachtContant
+let wisselTeveel = ''
+try {
+  await kluis.wisselgeldUitKluis({
+    kluis: deKluis, register, munten: { b500: 1 }, door: baas,
+  })
+} catch (e) {
+  wisselTeveel = e instanceof Error ? e.message : String(e)
+}
+check('wisselgeld halen dat er niet is, gaat niet',
+  wisselTeveel.includes('ligt er niet in'), wisselTeveel)
+check('en dan komt er ook niets in de lade',
+  (await kas.kasStand(kluisSessie.id))?.verwachtContant === ladeVoorMislukt)
+
+/* ---- de telling is het ijkpunt ---- */
+
+const geteldMinder = await kluis.kluisTellen({
+  kluis: deKluis, geteld: { b100: 3, b50: 1, b20: 4 }, door: baas,
+})
+check('het verwachte bedrag wordt vastgelegd', geteldMinder.verwacht === 440,
+  String(geteldMinder.verwacht))
+check('en het verschil ook', geteldMinder.verschil === -10,
+  String(geteldMinder.verschil))
+
+const naTelling = await kluis.kluisStand(deKluis.id)
+check('na de telling is het saldo wat er geteld is', naTelling?.bedrag === 430,
+  String(naTelling?.bedrag))
+check('en dat is nu het ijkpunt', naTelling?.sindsTelling === 0)
+
+/*
+ * Het verschil wordt niet weggerekend. Zou de app dat doen, dan is een kluis
+ * die elke maand tien euro mist niet te onderscheiden van een kluis die
+ * klopt -- en dat is precies wat je wilt zien.
+ */
+check('het verschil blijft in de boeking staan',
+  (await db.safeMoves.get(geteldMinder.boeking.id))?.difference === -10)
+
+await kluis.kluisBoeken({
+  kluis: deKluis, soort: 'uitgave', munten: { b20: 1 }, reden: 'ruitenwissers',
+  door: baas,
+})
+const naUitgave = await kluis.kluisStand(deKluis.id)
+check('wat na de telling komt telt weer mee', naUitgave?.bedrag === 410,
+  String(naUitgave?.bedrag))
+check('en de boeking staat in de historie met zijn briefjes',
+  naUitgave?.boekingen[0].coins.b20 === 1)
+
+/*
+ * Tellen en in dezelfde milliseconde boeken.
+ *
+ * Dit is de fout waar de zelftest hierboven per ongeluk op stuitte: hij is snel
+ * genoeg om binnen één milliseconde te tellen en te boeken, en toen viel die
+ * boeking uit het saldo. Met de hand duurt dat langer -- maar twee kassa's die
+ * offline tegelijk boeken hebben precies hetzelfde probleem, en dan gaat het
+ * over geld. Vandaar dat het nu expliciet vastligt.
+ */
+/*
+ * Ná alles wat er al staat. Date.now() is hier niet goed genoeg: de kluis
+ * gebruikt tijdstempel(), en die loopt bij drukte een paar milliseconden voor
+ * op de klok. Dan zou deze telling tussen de eerdere boekingen belanden en
+ * meet de controle iets anders dan waar hij over gaat.
+ */
+const zelfdeMs = Math.max(
+  ...(await db.safeMoves.toArray()).map((m) => m.at)) + 5
+await db.safeMoves.bulkPut([
+  {
+    id: 'kl_gelijk_telling', safeId: deKluis.id, locationId: deKluis.locationId,
+    soort: 'telling', coins: {}, counted: { b50: 2 }, amount: 0,
+    expected: 0, difference: 0, reason: 'telling', userName: 'Test',
+    at: zelfdeMs, updatedAt: zelfdeMs,
+  },
+  {
+    id: 'kl_gelijk_uitgave', safeId: deKluis.id, locationId: deKluis.locationId,
+    soort: 'uitgave', coins: { b50: 1 }, amount: -50, reason: 'in dezelfde ms',
+    userName: 'Test', at: zelfdeMs, updatedAt: zelfdeMs,
+  },
+] as any)
+
+const gelijk = await kluis.kluisStand(deKluis.id)
+check('een boeking in dezelfde milliseconde als de telling valt niet weg',
+  gelijk?.bedrag === 50, String(gelijk?.bedrag))
+
+check('een lege boeking wordt geweigerd', await (async () => {
+  try {
+    await kluis.kluisBoeken({ kluis: deKluis, soort: 'inleg', munten: {}, door: baas })
+    return false
+  } catch { return true }
+})())
+
+/* ---- alles staat in de wachtrij ---- */
+
+const kluisWachtrij = (await db.outbox.toArray()).filter((r) => r.entity === 'safeMoves')
+check('elke kluisboeking staat in de wachtrij', kluisWachtrij.length >= 5,
+  String(kluisWachtrij.length))
+check('de kluisboeking gaat na de kassadag de deur uit',
+  PUSH_ORDER.indexOf('safeMoves') > PUSH_ORDER.indexOf('cashSessions'))
+
+/* ---- de herinnering om te tellen ---- */
+
+check('een verse telling geeft geen herinnering',
+  kluis.telHerinnering(naUitgave) === null)
+
+const oudeTelling = {
+  ...naUitgave!,
+  laatsteTelling: { ...geteldMinder.boeking, at: Date.now() - 60 * 86400000 },
+}
+check('een telling van twee maanden oud wel',
+  (kluis.telHerinnering(oudeTelling) ?? '').includes('niet geteld'))
+
+/* ================================================================== *
+ *  14. De koppelcode
+ *
+ *  Het inwisselen zelf gaat over het netwerk en is hier niet te testen. Wat
+ *  wél te testen is, is het deel dat iemand op een maandagochtend tegenhoudt:
+ *  het opschonen en het nakijken van wat er is ingetikt.
+ * ================================================================== */
+
+console.log('\n14. De koppelcode')
+
+check('streepjes en spaties mogen mee',
+  koppelen.koppelcodeOpschonen('k7qj-4m2p') === 'K7QJ4M2P' &&
+  koppelen.koppelcodeOpschonen(' K7QJ 4M2P ') === 'K7QJ4M2P')
+
+check('een goede code komt er zonder klacht door',
+  koppelen.koppelcodeProbleem('K7QJ4M2P') === null)
+
+check('te kort wordt gemeld',
+  (koppelen.koppelcodeProbleem('K7QJ') ?? '').includes('acht tekens'))
+
+check('te lang ook',
+  (koppelen.koppelcodeProbleem('K7QJ4M2PX') ?? '').includes('acht tekens'))
+
+/*
+ * Dit is de melding die het telefoontje voorkomt. Wie een O voor een nul
+ * aanziet, krijgt niet "onbekende code" maar te horen wát er mis is.
+ */
+const verward = koppelen.koppelcodeProbleem('K7QJ4M2O') ?? ''
+check('een O in de code wordt uitgelegd', verward.includes('O'), verward)
+check('en de uitleg zegt waarom', verward.includes('nul'), verward)
+
+check('een nul en een één worden ook opgemerkt',
+  (koppelen.koppelcodeProbleem('K7QJ4M20') ?? '').includes('0') &&
+  (koppelen.koppelcodeProbleem('K7QJ4M21') ?? '').includes('1'))
+
+check('een leeg veld zegt wat je moet doen',
+  (koppelen.koppelcodeProbleem('') ?? '').includes('dashboard'))
+
 /* ================================================================== */
+
 
 await db.close()
 

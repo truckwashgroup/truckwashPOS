@@ -136,8 +136,15 @@ export const PUSH_ORDER: EntityName[] = [
   'cashSessions', 'sales', 'saleLines', 'payments',
   // De kaart verwijst naar de bon waarop hij verkocht is.
   'subscriptions', 'subscriptionUses',
-  'cashMoves', 'timeEntries', 'inventory', 'stockMovements',
+  'cashMoves',
+  // De kluisboeking verwijst naar de kassadag waar het geld uit kwam, dus
+  // komt hij daarna. Kluizen zelf maakt de kassa niet aan; die komen uit het
+  // dashboard, en daarom staat 'safes' hier niet.
+  'safeMoves',
+  'timeEntries', 'inventory', 'stockMovements',
   'pins',
+  // Dit apparaat meldt alleen van zijn eigen regel dat hij er nog is.
+  'devices',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -240,6 +247,9 @@ const TABLE_OF: Record<EntityName, () => any> = {
   subscriptions: () => db.subscriptions,
   subscriptionUses: () => db.subscriptionUses,
   pins: () => db.pins,
+  safes: () => db.safes,
+  safeMoves: () => db.safeMoves,
+  devices: () => db.devices,
 }
 
 async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {

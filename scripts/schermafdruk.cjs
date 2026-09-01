@@ -60,7 +60,8 @@ new Promise((klaar) => {
         roles: ['employee'], active: true, locationId: 'loc_demo', updatedAt: nu },
     ]
 
-    const t = db.transaction(['users', 'registers', 'locations', 'meta'], 'readwrite')
+    const t = db.transaction(
+      ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves'], 'readwrite')
     for (const m of mensen) t.objectStore('users').put(m)
     t.objectStore('locations').put({
       id: 'loc_demo', code: 'TW-UTR', name: 'Utrecht', kind: 'vestiging',
@@ -73,6 +74,28 @@ new Promise((klaar) => {
       lastSeq: 0, active: true, updatedAt: nu,
     })
     t.objectStore('meta').put({ key: 'registerId', value: 'reg_demo' })
+
+    // Een kluis met iets erin, anders is het kluisscherm een lege doos.
+    t.objectStore('safes').put({
+      id: 'kluis_loc_demo', locationId: 'loc_demo', name: 'Kluis Utrecht',
+      active: true, updatedAt: nu,
+    })
+    const kluisboekingen = [
+      { id: 'kl_a', soort: 'telling', coins: {},
+        counted: { b100: 2, b50: 3, b20: 4, m200: 20 },
+        amount: 0, expected: 430, difference: 0,
+        userName: 'Casper de Vries', at: nu - 86400000 * 6 },
+      { id: 'kl_b', soort: 'afstorting', coins: { b50: 2, b20: 3 }, amount: 160,
+        reason: 'Uit KAS-UTR-1', userName: 'Ali Yildiz', at: nu - 86400000 * 2 },
+      { id: 'kl_c', soort: 'wisselgeld', coins: { m200: 10 }, amount: -20,
+        reason: 'Naar KAS-UTR-1', userName: 'Casper de Vries', at: nu - 3600000 * 5 },
+    ]
+    for (const b of kluisboekingen) {
+      t.objectStore('safeMoves').put({
+        safeId: 'kluis_loc_demo', locationId: 'loc_demo', reason: '',
+        userId: 'u_demo', updatedAt: nu, ...b,
+      })
+    }
     // De proefmuziekmap, zodat het Speler-scherm niet leeg in beeld komt.
     t.objectStore('meta').put({ key: 'spelerMap', value: MUZIEKMAP })
     t.oncomplete = () => {
@@ -87,8 +110,8 @@ new Promise((klaar) => {
 
 /** Wat we willen zien, en hoe groot. */
 const AFDRUKKEN = [
-  { naam: 'inrichten-donker', thema: 'donker', breedte: 1366, hoogte: 850 },
-  { naam: 'inrichten-licht', thema: 'licht', breedte: 1366, hoogte: 850 },
+  { naam: 'koppelen-donker', thema: 'donker', breedte: 1366, hoogte: 850 },
+  { naam: 'koppelen-licht', thema: 'licht', breedte: 1366, hoogte: 850 },
   { naam: 'aanmelden-donker', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true },
   { naam: 'aanmelden-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true },
   // Een kleine tablet in liggende stand: de maat waarop dingen gaan wringen.
@@ -100,6 +123,11 @@ const AFDRUKKEN = [
   { naam: 'kassa-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014' },
   { naam: 'klok', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Klok' },
   { naam: 'kas', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kas' },
+  { naam: 'kluis', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis' },
+  { naam: 'kluis-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis' },
+  // Het muntenbord zelf: waar de kluis om draait.
+  { naam: 'kluis-wisselgeld', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis', knop: 'Wisselgeld halen' },
+  { naam: 'kluis-tellen', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis', knop: 'Kluis tellen' },
   { naam: 'muziek', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Muziek' },
   { naam: 'beheer', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Beheer' },
   { naam: 'speler', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },
@@ -112,7 +140,7 @@ speler.meldSchemaAan()
 
 const wacht = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
+async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop }) {
   const win = new BrowserWindow({
     width: breedte,
     height: hoogte,
@@ -173,7 +201,13 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
     }
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
-    await wacht(1200)
+    /*
+     * Ruim wachten, en niet krap. Na het aanmelden zet de app het blad terug
+     * op Kassa -- een nieuwe medewerker begint niet waar de vorige gebleven
+     * was. Klik je te snel op een tabblad, dan gooit die reactie het er weer
+     * af, en staat er op de afdruk het kassascherm terwijl er niets fout is.
+     */
+    await wacht(2400)
   }
 
   if (tab) {
@@ -188,6 +222,28 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab }) {
     `)
     if (!gelukt) console.log(`  (${naam}: tabblad "${tab}" niet gevonden)`)
     await wacht(1200)
+  }
+
+  /*
+   * En een knop erin, zodat ook wat in een venster zit op de afdruk komt.
+   *
+   * Zonder dit zie je van de kluis alleen het overzicht, en juist het bord met
+   * briefjes en munten is het onderdeel waar het om gaat -- dat zit achter een
+   * knop. Een deel van de app dat je nooit ziet, is een deel waar een fout
+   * ongestoord in blijft zitten.
+   */
+  if (knop) {
+    const gelukt = await win.webContents.executeJavaScript(`
+      (() => {
+        const doel = [...document.querySelectorAll('button')]
+          .find((b) => b.textContent && b.textContent.includes(${JSON.stringify(knop)}))
+        if (!doel) return false
+        doel.click()
+        return true
+      })()
+    `)
+    if (!gelukt) console.log(`  (${naam}: knop "${knop}" niet gevonden)`)
+    await wacht(900)
   }
 
   const plaat = await win.webContents.capturePage()

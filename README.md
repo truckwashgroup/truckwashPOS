@@ -87,7 +87,7 @@ Opnieuw draaien mag: het maakt niets dubbel aan en gooit niets weg.
 
 ### 2. Rechten uitdelen
 
-In het dashboard, onder **Personeel → Rechten**, staan vijf nieuwe rechten:
+In het dashboard, onder **Personeel → Rechten**, staan zes nieuwe rechten:
 
 | Recht | Wat het toestaat | Standaard bij |
 |---|---|---|
@@ -95,9 +95,15 @@ In het dashboard, onder **Personeel → Rechten**, staan vijf nieuwe rechten:
 | `pos.discount` | Korting geven en prijzen aanpassen | leidinggevende |
 | `pos.refund` | Een afgerekende bon crediteren | leidinggevende |
 | `pos.cash` | Kas openen, tellen en de dag afsluiten | leidinggevende |
+| `pos.safe` | De kluis: afstorten, wisselgeld, tellen | management |
 | `pos.manage` | Artikelen, prijzen, codes en de printer | management |
 
 Wie geen `pos.use` heeft, staat niet in de lijst bij het aanmelden.
+
+De kluis staat bewust een stap hoger dan de lade. De lade telt wie er die dag
+achter staat; de kluis is van het bedrijf. Wie het recht niet heeft, ziet de tab
+Kluis niet — een tab die je wel ziet maar niet in kunt, is aan een balie een
+gesprek dat niemand wil hebben met een chauffeur die staat te wachten.
 
 ### 3. De kassa zelf
 
@@ -107,16 +113,40 @@ npm install
 npm run electron:dev      # of: npm run dev  voor alleen de browser
 ```
 
-Bij de eerste start vraagt de kassa om:
+Bij de eerste start vraagt de kassa om één ding: een **koppelcode** van acht
+tekens. Die maakt het kantoor aan in het dashboard, bij de kassa waar dit
+apparaat op komt te staan.
 
-1. **een account** — hetzelfde e-mailadres en wachtwoord als in de wasstraat-app;
-2. **welke kassa dit is** — of maak er een aan met een korte, unieke code
-   (`KAS-UTR-1`). Daarmee beginnen de bonnummers.
+Hoe dat loopt:
+
+1. **Dashboard** — vestiging aanmaken (als die er nog niet is), dan een kassa met
+   een korte unieke code (`KAS-UTR-1`; daarmee beginnen de bonnummers), dan een
+   koppelcode bij die kassa.
+2. **Kassa** — code intikken. Meer niet. Het apparaat krijgt zijn eigen inlog en
+   staat vanaf dat moment in de lijst met apparaten.
+
+Een koppelcode werkt **één keer** en verloopt. Er staat geen e-mailadres en geen
+wachtwoord van een mens meer op een tablet achter de balie.
+
+### Op afstand op slot of eruit
+
+Vanuit het dashboard, bij het apparaat:
+
+| Wat je doet | Wat de kassa doet |
+|---|---|
+| **Blokkeren** | Gaat op slot: er kan niet mee verkocht worden. Blijft wél synchroniseren, dus wat er nog op stond komt alsnog binnen. Weer aanzetten kan. |
+| **Intrekken** | Stuurt eerst zijn wachtrij leeg, wist zich daarna zelf en meldt dat terug (`wiped_at`). Daarna is er een nieuwe code nodig. |
+
+Die twee stappen bij het intrekken zijn er met een reden. Trek je de inlog er
+direct onderuit, dan kan de omzet die nog op dat apparaat stond nergens meer
+aankomen — en die staat dan nergens. Zolang er iets in de wachtrij staat, laat
+de kassa dat groot in beeld zien in plaats van zich te wissen.
 
 > **Twee apparaten nooit op dezelfde kassa.** De bonnummering loopt op het
 > apparaat door, dus twee kassa's met dezelfde code delen dezelfde nummers uit.
-> De database weigert de tweede, en die omzet blijft in de wachtrij hangen. De
-> kassa waarschuwt hiervoor, maar geef een tweede apparaat gewoon een eigen code.
+> Dit houdt de database nu tegen (`pos_devices`, één actief apparaat per kassa) —
+> eerder was het alleen een waarschuwing. Moet er een tweede apparaat aan
+> dezelfde balie, geef dat een eigen kassa.
 
 ### 4. Artikelen invoeren
 
@@ -141,6 +171,68 @@ Maak daarom in het dashboard één bedrijf aan (bijvoorbeeld "Losse ritten") en
 wijs dat aan onder **Beheer → Deze kassa**. Zonder die instelling wordt de
 wasbeurt gewoon verkocht, maar komt hij niet in de wachtrij — dan is de bon het
 enige bewijs.
+
+---
+
+## De kluis
+
+Naast de lade van de kassa staat op elke vestiging een kluis. De kassa houdt
+allebei bij, en het scherm **Kluis** laat ze naast elkaar zien: wat er in de
+kluis ligt en wat er in de lade hoort te liggen.
+
+### Er wordt geteld, niet ingetikt
+
+Dat is de kern van dit scherm en geen aardigheidje. Wie 340 euro afstort, legt
+drie briefjes van honderd en twee van twintig neer. Tikt hij "340" in, dan is er
+achteraf geen manier om te zien dat er 240 lag — een 3 en een 4 liggen naast
+elkaar op een cijferblok, en beide getallen zien er even geloofwaardig uit.
+Aantikken kan ook fout, maar dan zie je het: er staat "2x € 100" terwijl je er
+drie in je hand hebt.
+
+Er staat in het hele kluisscherm dus geen enkel veld waarin je een bedrag
+intikt. Ook het tellen van de lade bij de dagafsluiting gaat zo — één manier om
+geld te tellen in de hele app.
+
+### Wat je kunt doen
+
+| Handeling | Waar het geld heen gaat |
+|---|---|
+| **Afstorten uit de kassa** | Lade → kluis. Boekt in één keer bij de kluis en af van de kassadag. |
+| **Wisselgeld halen** | Kluis → lade. Andere kant op, ook in één keer. |
+| **Naar de bank** | Kluis → bank of geldophaaldienst. |
+| **Van de bank** | Rollen munten opgehaald. |
+| **Contante uitgave** | Uit de kluis, met een verplichte toelichting. |
+| **Kluis tellen** | Vaststellen wat er ligt. |
+
+Wat de kluis uit gaat, kan niet meer zijn dan er ligt: die vakjes geven niet
+mee, en eronder staat hoeveel er nog over is. Er wordt niet gewisseld — vijf
+briefjes van tien is hetzelfde bedrag als één van vijftig, maar niet hetzelfde
+als wat je in je hand hebt.
+
+Van de **lade** kent de kassa het bedrag en niet de briefjes: daar gaat de hele
+dag wisselgeld uit. Wat er precies in ligt, blijkt bij het tellen onder Kas.
+
+### De telling is het ijkpunt
+
+Het saldo van de kluis is geen veld maar een som: vanaf de laatste telling
+optellen. Dat is dezelfde keuze als bij het saldo van een strippenkaart, en om
+dezelfde reden — twee mensen die offline tegelijk iets uit de kluis halen zouden
+elkaars saldo overschrijven; regels bij elkaar optellen kan niet fout gaan.
+
+Bij een telling zie je wat er hoorde te liggen **pas nadat** je hebt geteld.
+Anders tel je naar een getal toe; niet omdat iemand oneerlijk is, maar omdat een
+mens zo werkt.
+
+Het verschil wordt vastgelegd en niet weggerekend. Een kluis die elke maand tien
+euro mist, is iets anders dan een kluis die klopt, en dat verschil hoort
+zichtbaar te blijven.
+
+### Een boeking staat vast
+
+De database weigert een kluisboeking te wijzigen of te verwijderen — net als bij
+een afgerekende bon. Een vergissing zet je recht met een tegenboeking of met een
+telling. Dan blijft te zien wat er gebeurd is, en dat is precies wat een
+kasadministratie moet kunnen.
 
 ---
 

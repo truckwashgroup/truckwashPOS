@@ -1100,3 +1100,271 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   .nummerveld { min-height: 54px; font-size: 28px; }
   .voorportaal .merkinhoud p { display: none; }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Het muntenbord
+ *
+ *  Grote vakjes, want iemand staat hier met geld in zijn handen en tikt met
+ *  een duim. Het aantal moet van een meter afstand te lezen zijn: dat is de
+ *  controle op wat je hebt aangetikt.
+ * ------------------------------------------------------------------ */
+
+.muntbord { display: flex; flex-direction: column; gap: 8px; }
+
+.muntkop {
+  font-size: 11.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+.muntrij {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  /* Een rij is zo hoog als de vakjes, niet hoger. */
+  grid-auto-rows: min-content;
+  align-content: start;
+}
+
+.muntvak { position: relative; }
+
+.muntvak-op {
+  width: 100%;
+  min-height: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .12s, border-color .12s, transform .06s;
+}
+
+.muntvak-op:hover:not(:disabled) { background: var(--surface-2); }
+.muntvak-op:active:not(:disabled) { transform: scale(.97); }
+
+/* Aangetikt: opvallend, maar niet zo hard dat een bord met tien aangetikte
+   vakjes onleesbaar wordt. */
+.muntvak.muntvak-aan .muntvak-op {
+  border-color: var(--line-brand);
+  background: var(--tint-brand);
+}
+
+.muntvak-label { font-weight: 600; font-size: 14px; }
+
+.muntvak-aantal {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.05;
+  min-height: 28px;
+  color: var(--text-brand);
+}
+
+.muntvak-voorraad { font-size: 11px; color: var(--text-3); }
+
+/*
+ * Een vakje waar niets van in de kluis ligt blijft staan en gaat niet weg.
+ * Verdwijnen zou het bord elke keer een andere vorm geven, en dan tik je op
+ * de plek waar gisteren de vijftig zat.
+ */
+.muntvak.muntvak-zonder .muntvak-op { opacity: .45; }
+
+.muntvak-op:disabled { cursor: not-allowed; }
+.muntvak.muntvak-zonder .muntvak-op:disabled { opacity: .3; }
+
+.muntvak-af {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.muntvak-af:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.muntvak-af:disabled { opacity: 0; pointer-events: none; }
+
+.muntvoet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+
+.muntvoet-bedrag { font-size: 24px; font-weight: 800; letter-spacing: -.01em; }
+.muntvoet-sub { font-size: 12px; color: var(--text-3); }
+
+.muntwis {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.muntwis:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.muntwis:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Op een smal scherm passen er minder naast elkaar; de vakjes blijven groot
+   genoeg om met een duim te raken. */
+@media (max-width: 720px) {
+  .muntrij { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+  .muntvak-op { min-height: 70px; }
+  .muntvak-aantal { font-size: 22px; }
+}
+
+/* ------------------------------------------------------------------ *
+ *  De kluis
+ * ------------------------------------------------------------------ */
+
+.kluisbedrag {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  line-height: 1.05;
+  margin-top: 4px;
+}
+
+.kluissub { font-size: 12.5px; color: var(--text-3); margin-top: 4px; }
+
+.kluisknoppen {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.kluisknop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 14px 16px;
+  min-height: 68px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .12s, border-color .12s, transform .06s;
+}
+
+.kluisknop:hover { background: var(--surface-2); border-color: var(--line-brand); }
+.kluisknop:active { transform: scale(.99); }
+
+.kluisknop-icoon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 11px;
+  background: var(--tint-brand);
+  color: var(--text-brand);
+}
+
+.kluisknop .rek { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kluisknop-titel { font-weight: 600; }
+.kluisknop-uitleg { font-size: 12px; color: var(--text-3); }
+
+/* ------------------------------------------------------------------ *
+ *  De koppelcode
+ *
+ *  Groot, want hij wordt van een ander scherm overgelezen. Wie tussendoor
+ *  moet zoeken waar hij was, tikt een teken dubbel.
+ * ------------------------------------------------------------------ */
+
+.koppelvak {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 74px;
+  margin-top: 4px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: .16em;
+}
+
+.koppelvak-leeg { color: var(--text-3); letter-spacing: .04em; font-size: 22px; }
+
+.letterbord {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.letter {
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.letter:hover:not(:disabled) { background: var(--surface-2); }
+.letter:active:not(:disabled) { transform: scale(.96); }
+.letter:disabled { opacity: .35; cursor: not-allowed; }
+
+/* ------------------------------------------------------------------ *
+ *  Op slot gezet vanaf het dashboard
+ * ------------------------------------------------------------------ */
+
+.opslot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 100vh;
+  padding: 28px;
+  text-align: center;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.opslot-icoon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 74px;
+  height: 74px;
+  border-radius: 22px;
+  background: var(--tint-danger);
+  color: var(--text-danger);
+}
+
+.opslot h2 { margin: 0; font-size: 24px; }
+.opslot p { max-width: 480px; color: var(--text-2); line-height: 1.6; margin: 0; }

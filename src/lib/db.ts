@@ -1,8 +1,9 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   Company, InventoryItem, Location, OutboxRecord, PosCashMove, PosCashSession,
-  PosPayment, PosPin, PosProduct, PosRegister, PosSale, PosSaleLine,
-  PosSubscription, PosSubscriptionUse, StockMovement, TimeEntry, User, WashJob,
+  PosDevice, PosPayment, PosPin, PosProduct, PosRegister, PosSafe, PosSafeMove,
+  PosSale, PosSaleLine, PosSubscription, PosSubscriptionUse, StockMovement,
+  TimeEntry, User, WashJob,
 } from './types'
 
 /**
@@ -42,6 +43,11 @@ class KassaDB extends Dexie {
   subscriptionUses!: Table<PosSubscriptionUse, string>
   pins!: Table<PosPin, string>
 
+  /* --- de kluis en dit apparaat, vanaf versie 2 --- */
+  safes!: Table<PosSafe, string>
+  safeMoves!: Table<PosSafeMove, string>
+  devices!: Table<PosDevice, string>
+
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -73,6 +79,19 @@ class KassaDB extends Dexie {
       outbox: '++id, entity, recordId, createdAt',
       meta: 'key',
     })
+
+    /*
+     * Versie 2: de kluis en de lijst met apparaten.
+     *
+     * Alleen de nieuwe tabellen staan hier. Dexie houdt de rest van versie 1
+     * vast, dus een kassa die al draait raakt niets kwijt -- en dat is bij
+     * een kassa het enige dat telt: in de outbox kan omzet staan.
+     */
+    this.version(2).stores({
+      safes: 'id, locationId, active, updatedAt',
+      safeMoves: 'id, safeId, sessionId, soort, at, updatedAt',
+      devices: 'id, registerId, locationId, status, updatedAt',
+    })
   }
 }
 
@@ -85,6 +104,26 @@ export async function getMeta<T>(key: string, fallback: T): Promise<T> {
 
 export async function setMeta(key: string, value: unknown) {
   await db.meta.put({ key, value })
+}
+
+/**
+ * Een tijdstip dat nooit twee keer hetzelfde is op dit apparaat.
+ *
+ * Date.now() geeft hele milliseconden, en twee handelingen achter elkaar vallen
+ * daar makkelijk binnen. Bij een bon maakt dat niets uit -- die staat op zijn
+ * bonnummer. Bij de kluis wel: het saldo wordt opgeteld vanaf de laatste
+ * telling, dus als een boeking dezelfde tijdstempel heeft als die telling, is er
+ * geen manier meer om te zien wat er eerder was. Dan valt die boeking uit het
+ * saldo, zonder foutmelding en met een bedrag dat niet klopt.
+ *
+ * Dit loopt daarom altijd door. Bij drukte gaat de klok een paar milliseconden
+ * voor op de echte; dat is een prijs die niemand merkt.
+ */
+let laatsteTijd = 0
+
+export function tijdstempel(): number {
+  laatsteTijd = Math.max(Date.now(), laatsteTijd + 1)
+  return laatsteTijd
 }
 
 export function uid(prefix = ''): string {

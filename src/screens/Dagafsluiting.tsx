@@ -6,7 +6,8 @@ import {
 import Toetsenblok, { alsBedrag, naarBedrag } from '../components/Toetsenblok'
 import { Dialoog, Fout, Knop, Leeg, Pil, Regel, Uitleg, Veld } from '../components/ui'
 import { dateTime, money, time } from '../lib/format'
-import { centen, COUPURES } from '../lib/geld'
+import Muntenbord from '../components/Muntenbord'
+import { type Munten, muntenBedrag } from '../lib/munten'
 import { openLade } from '../lib/hardware/printer'
 import {
   afsluitingen, kasMutatie, kasOpenen, kasSluiten, kasStand, openSessie,
@@ -318,14 +319,22 @@ function KasSluiten({
   stand, onSluiten,
 }: { stand: KasStand; onSluiten: () => void }) {
   const { operator } = useAuth()
-  const [tellen, setTellen] = useState<Record<number, string>>({})
+  const [geteldeMunten, setGeteldeMunten] = useState<Munten>({})
   const [note, setNote] = useState('')
   const [gezien, setGezien] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
 
-  const geteld = COUPURES.reduce(
-    (som, c) => centen(som + (Number(tellen[c] || 0) * c)), 0)
-  const verschil = centen(geteld - stand.verwachtContant)
+  /*
+   * Aantikken in plaats van intikken.
+   *
+   * Hier stond een rij invoervelden waarin je per coupure een aantal typte.
+   * Dat werkt, en het heeft hetzelfde gat als bij de kluis: een 3 en een 4
+   * liggen naast elkaar op een blok, en beide getallen zien er even
+   * geloofwaardig uit. Nu is het hetzelfde bord als bij de kluis -- en dat
+   * betekent ook dat er in de hele app één manier is om geld te tellen.
+   */
+  const geteld = muntenBedrag(geteldeMunten)
+  const verschil = Math.round((geteld - stand.verwachtContant) * 100) / 100
 
   async function sluit() {
     if (!operator) return
@@ -364,40 +373,11 @@ function KasSluiten({
         <div>
           <h3 style={{ marginTop: 0 }}>Tel de lade</h3>
           <p className="uitleg">
-            Vul in hoeveel je van elk briefje en muntstuk hebt. Het verwachte
-            bedrag zie je pas na het tellen — anders tel je naar een getal toe.
+            Tik aan wat er in de lade ligt. Het verwachte bedrag zie je pas na
+            het tellen — anders tel je naar een getal toe.
           </p>
 
-          <table className="tabel">
-            <tbody>
-              {COUPURES.map((c) => (
-                <tr key={c}>
-                  <td style={{ width: 90 }}>{money(c)}</td>
-                  <td>
-                    <input
-                      className="cijfers"
-                      inputMode="numeric"
-                      value={tellen[c] ?? ''}
-                      onChange={(e) => setTellen({ ...tellen, [c]: e.target.value.replace(/\D/g, '') })}
-                      style={{
-                        width: 80, minHeight: 40, textAlign: 'center',
-                        border: '1px solid var(--line)', borderRadius: 8,
-                        background: 'var(--bg-2)', color: 'var(--text)',
-                        userSelect: 'text',
-                      }}
-                    />
-                  </td>
-                  <td className="rechts">
-                    {money(centen(Number(tellen[c] || 0) * c))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div style={{ marginTop: 12 }}>
-            <Regel label="Geteld" waarde={money(geteld)} groot />
-          </div>
+          <Muntenbord waarde={geteldeMunten} onWaarde={setGeteldeMunten} />
         </div>
 
         <div>

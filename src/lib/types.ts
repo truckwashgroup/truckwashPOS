@@ -20,6 +20,12 @@
 export * from './gedeeldeTypes'
 
 import type { ServiceKind } from './gedeeldeTypes'
+/*
+ * Alleen als type. munten.ts haalt centen() uit geld.ts, en geld.ts haalt
+ * zijn typen hier weg: een gewone import zou een kringetje zijn dat pas bij
+ * het bouwen opvalt. Een type verdwijnt bij het compileren, dus die kan wel.
+ */
+import type { Munten } from './munten'
 
 /* ------------------------------------------------------------------ *
  *  De kassa zelf
@@ -255,6 +261,117 @@ export interface PosCashMove {
 }
 
 /* ------------------------------------------------------------------ *
+ *  De kluis
+ *
+ *  Naast de lade staat op elke vestiging een kluis. Het verschil met de lade
+ *  is niet alleen waar het geld ligt maar ook hoe erover geboekt wordt: bij de
+ *  kluis worden briefjes en munten geteld, geen bedragen ingetikt. Zie
+ *  munten.ts voor waarom, en kluis.ts voor het rekenwerk.
+ * ------------------------------------------------------------------ */
+
+export interface PosSafe {
+  id: string
+  locationId?: string
+  name: string
+  active: boolean
+  note?: string
+  updatedAt: number
+}
+
+/**
+ * Waar het geld heen ging, en dus welke kant het op gaat.
+ *
+ * De richting zit hierin en niet in het teken van het bedrag. Een min die
+ * iemand zelf moet intikken, is een min die iemand ooit vergeet.
+ */
+export type KluisSoort =
+  /* erin */
+  | 'afstorting'   // uit de kassalade naar de kluis
+  | 'van-bank'     // wisselgeld opgehaald bij de bank
+  | 'inleg'        // iets anders wat erin gaat
+  /* eruit */
+  | 'wisselgeld'   // uit de kluis naar de kassalade
+  | 'naar-bank'    // afgestort bij de bank
+  | 'uitgave'      // contant betaald: boodschappen, een monteur
+  /* het ijkpunt */
+  | 'telling'
+
+export const KLUIS_LABELS: Record<KluisSoort, string> = {
+  afstorting: 'Afstorting uit de kassa',
+  'van-bank': 'Opgehaald bij de bank',
+  inleg: 'Inleg',
+  wisselgeld: 'Wisselgeld naar de kassa',
+  'naar-bank': 'Afgestort bij de bank',
+  uitgave: 'Contante uitgave',
+  telling: 'Telling',
+}
+
+/** Welke kant het op gaat. Een telling heeft geen richting; die zet het saldo. */
+export const KLUIS_TEKEN: Record<KluisSoort, 1 | -1 | 0> = {
+  afstorting: 1,
+  'van-bank': 1,
+  inleg: 1,
+  wisselgeld: -1,
+  'naar-bank': -1,
+  uitgave: -1,
+  telling: 0,
+}
+
+export interface PosSafeMove {
+  id: string
+  safeId: string
+  locationId?: string
+  soort: KluisSoort
+  /** Wat er fysiek bewoog, altijd positieve aantallen. Bij een telling leeg. */
+  coins: Munten
+  /** Alleen bij een telling: de volledige samenstelling zoals geteld. */
+  counted?: Munten
+  /** Het bedrag met teken, afgeleid uit coins en soort. */
+  amount: number
+  /** Alleen bij een telling. */
+  expected?: number
+  difference?: number
+  /** Als het geld van of naar de kassalade ging. */
+  sessionId?: string
+  registerId?: string
+  reason: string
+  userId?: string
+  userName: string
+  at: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
+ *  Dit apparaat
+ *
+ *  Een kassa wordt gekoppeld met een code die het kantoor uitdeelt, en staat
+ *  daarna in een lijst. Vanuit die lijst kan hij ook weer op slot: dit is de
+ *  regel waar de kassa bij elke synchronisatie naar kijkt.
+ * ------------------------------------------------------------------ */
+
+export type ApparaatStatus = 'actief' | 'geblokkeerd' | 'ingetrokken'
+
+export interface PosDevice {
+  id: string
+  registerId?: string
+  locationId?: string
+  /** Wat dit apparaat van zichzelf weet; blijft staan na herinstalleren. */
+  deviceKey: string
+  name: string
+  platform: string
+  appVersion?: string
+  authUserId?: string
+  profileId?: string
+  status: ApparaatStatus
+  pairedAt: number
+  lastSeenAt?: number
+  /** Wanneer de kassa zichzelf gewist heeft na een intrekking. */
+  wipedAt?: number
+  note?: string
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Kaarten en abonnementen
  * ------------------------------------------------------------------ */
 
@@ -325,7 +442,7 @@ export type EntityName =
   /* eigen tabellen */
   | 'registers' | 'products' | 'sales' | 'saleLines' | 'payments'
   | 'cashSessions' | 'cashMoves' | 'subscriptions' | 'subscriptionUses'
-  | 'pins'
+  | 'pins' | 'safes' | 'safeMoves' | 'devices'
 
 export type SyncOp = 'put' | 'delete'
 
