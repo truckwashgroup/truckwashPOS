@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld('desktop', {
   /* --- meldingen --- */
   notify: (title, body) => ipcRenderer.invoke('notify:show', { title, body }),
 
+  /*
+   * Een melding voor later, die het afsluiten van de kassa overleeft.
+   * Zie electron/melding.cjs -- dit is niet hetzelfde als notify hierboven,
+   * want die kan alleen zolang de app draait.
+   */
+  meldingPlannen: (opdracht) => ipcRenderer.invoke('melding:plan', opdracht),
+
   /* --- bonprinter en lade --- */
   printBon: (opdrachten, printer, ladeOpen) =>
     ipcRenderer.invoke('printer:bon', { opdrachten, printer, ladeOpen }),

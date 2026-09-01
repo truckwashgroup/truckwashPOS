@@ -21,6 +21,8 @@ interface DesktopBrug {
   installUpdate(): Promise<void>
   onUpdateStatus(cb: (p: any) => void): () => void
   notify?(title: string, body: string): Promise<boolean>
+  /* Een melding voor later. Zie hardware/melding.ts. */
+  meldingPlannen?(o: { seconden: number; titel: string; tekst: string }): Promise<any>
   printBon(o: BonOpdracht[], p: PrinterConfig, ladeOpen: boolean): Promise<PrintResultaat>
   proefBon(p: PrinterConfig): Promise<PrintResultaat>
   openLade(p: PrinterConfig): Promise<PrintResultaat>

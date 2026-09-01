@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import QRCode from 'qrcode'
 import {
-  BadgeCheck, Banknote, CreditCard, Download, KeyRound, Package, Plus, Printer,
-  RefreshCw, Settings, Trash2,
+  BadgeCheck, Banknote, Bell, CreditCard, Download, KeyRound, Package, Plus,
+  Printer, RefreshCw, Settings, Trash2,
 } from 'lucide-react'
 import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld, Waarschuwing } from '../components/ui'
 import { db, uid } from '../lib/db'
@@ -14,6 +14,9 @@ import { TERMINAL_LABELS } from '../lib/hardware/terminal'
 import { bewaarRegister, losseKlant } from '../lib/kassa'
 import { can } from '../lib/permissions'
 import { BEWEGING_LABELS, THEMA_LABELS, useTheme } from '../lib/theme'
+import {
+  kanPlannen, planMelding, soortApparaat, type MeldingUitslag,
+} from '../lib/hardware/melding'
 import { enqueue, useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
 import { useAuth } from '../store/useAuth'
@@ -99,6 +102,7 @@ export default function Beheer({ register }: { register: PosRegister }) {
         <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
           <Over />
           <Weergave />
+          <Testmelding />
         </div>
       )}
     </div>
@@ -819,6 +823,117 @@ function DezeKassa({ register }: { register: PosRegister }) {
 
         <Knop soort="hoofd" breed onClick={() => void bewaar()}>Instellingen opslaan</Knop>
       </div>
+    </div>
+  )
+}
+
+/* ================================================================== *
+ *  Een melding voor later
+ *
+ *  Om te kunnen próberen of meldingen op dit apparaat werken -- en dan het
+ *  geval dat telt: als de app dicht is. Dat is namelijk het enige moment
+ *  waarop een melding ergens goed voor is; draait de app, dan kijk je toch al
+ *  naar het scherm.
+ *
+ *  Waarom dit een knop in de app is en geen aantekening in een handleiding:
+ *  of meldingen doorkomen hangt af van het apparaat, van Windows-instellingen
+ *  en op Android van twee aparte rechten. Dat weet je pas als je het doet.
+ * ================================================================== */
+
+function Testmelding() {
+  const [seconden, setSeconden] = useState('30')
+  const [tekst, setTekst] = useState('')
+  const [bezig, setBezig] = useState(false)
+  const [uitslag, setUitslag] = useState<MeldingUitslag | null>(null)
+
+  const soort = soortApparaat()
+
+  async function plan() {
+    setBezig(true)
+    setUitslag(null)
+    const n = Number(seconden)
+    const u = await planMelding({
+      seconden: Number.isFinite(n) ? n : 30,
+      tekst: tekst.trim() || undefined,
+    })
+    setUitslag(u)
+    setBezig(false)
+  }
+
+  return (
+    <div className="kaart">
+      <h3>
+        <Bell size={16} style={{ verticalAlign: -3, marginRight: 7 }} />
+        Melding uitproberen
+      </h3>
+      <p className="uitleg">
+        Zet een melding klaar voor straks en sluit de kassa daarna af. Komt hij
+        alsnog, dan werken meldingen op dit apparaat — en dat is het enige geval
+        dat telt.
+      </p>
+
+      {!kanPlannen() ? (
+        <Uitleg>
+          In de browser kan dit niet: een pagina die dicht is krijgt geen melding
+          zonder een pushdienst erachter. Probeer het op de Windows-kassa of op
+          de tablet.
+        </Uitleg>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '110px 1fr' }}>
+            <Veld label="Over hoeveel seconden">
+              <input
+                className="cijfers"
+                inputMode="numeric"
+                value={seconden}
+                onChange={(e) => setSeconden(e.target.value.replace(/\D/g, ''))}
+              />
+            </Veld>
+            <Veld label="Tekst" hint="Leeg laten mag; dan staat er een standaardtekst.">
+              <input
+                value={tekst}
+                onChange={(e) => setTekst(e.target.value)}
+                placeholder="Kas tellen"
+              />
+            </Veld>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {[10, 30, 60, 300].map((n) => (
+              <Knop key={n} maat="klein" onClick={() => setSeconden(String(n))}>
+                {n < 60 ? `${n} sec` : `${n / 60} min`}
+              </Knop>
+            ))}
+          </div>
+
+          <Knop soort="hoofd" onClick={() => void plan()} disabled={bezig || !seconden}>
+            <Bell size={17} /> {bezig ? 'Bezig…' : 'Melding klaarzetten'}
+          </Knop>
+
+          {uitslag && (uitslag.ok ? (
+            <Uitleg>
+              <strong>Staat klaar.</strong> Verwacht om{' '}
+              {uitslag.om
+                ? new Date(uitslag.om).toLocaleTimeString('nl-NL', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit',
+                  })
+                : 'straks'}.
+              {uitslag.hint ? ` ${uitslag.hint}` : ''}
+            </Uitleg>
+          ) : (
+            <Fout>{uitslag.reden ?? 'Klaarzetten lukte niet.'}</Fout>
+          ))}
+
+          <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+            {soort === 'windows'
+              ? 'Op Windows blijft een los proces staan dat wacht en dan de melding ' +
+                'toont. Er wordt niets geïnstalleerd en er blijft niets slingeren.'
+              : 'Op Android houdt het besturingssysteem de melding zelf bij, zoals ' +
+                'bij een wekker. Meldingen moeten wel toegestaan zijn, en op ' +
+                'Android 12 en later ook exacte alarmen.'}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

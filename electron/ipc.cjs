@@ -19,6 +19,7 @@ const escpos = require('./escpos.cjs')
 const terminal = require('./terminal.cjs')
 const muziek = require('./muziek.cjs')
 const speler = require('./speler.cjs')
+const melding = require('./melding.cjs')
 
 /** Een fout in de hardware mag de kassa nooit vastzetten. */
 const veilig = (kanaal, fn, bijFout) => {
@@ -65,6 +66,14 @@ function registreer({ hoofdvenster, paginaAdres }) {
     n.show()
     return true
   }, () => false)
+
+  /* ---- een melding voor later ----
+   *
+   * Om te kunnen proberen of meldingen op dit apparaat werken, ook als de
+   * kassa dicht is. Zie melding.cjs voor waarom dat een los proces vraagt.
+   */
+
+  veilig('melding:plan', (_e, opdracht) => melding.plan(opdracht ?? {}))
 
   /* ---- bonprinter en lade ----
    *
