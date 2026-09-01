@@ -70,6 +70,7 @@ const { PUSH_ORDER } = await import('../src/lib/sync')
 const munten = await import('../src/lib/munten')
 const kluis = await import('../src/lib/kluis')
 const koppelen = await import('../src/lib/koppelen')
+const beeld = await import('../src/lib/afbeelding')
 const { vergelijkVersies } = await import('../src/lib/hardware/apkUpdate')
 
 type User = import('../src/lib/types').User
@@ -1274,6 +1275,149 @@ check('een leeg veld zegt wat je moet doen',
 
 /* ================================================================== */
 
+
+/* ================================================================== *
+ *  15. Ontkoppelen
+ *
+ *  Deze afdeling staat achteraan met een reden: hij maakt de kassa leeg. Alles
+ *  wat erboven staat heeft zijn gegevens dan al gehad.
+ *
+ *  Wat hier bewezen moet worden is niet dat het wist -- dat is een regel code.
+ *  Het is de rem: een kassa die zich leegmaakt terwijl er nog een bon in de
+ *  wachtrij staat, gooit omzet weg die nergens anders bestaat.
+ * ================================================================== */
+
+console.log('\n15. Ontkoppelen')
+
+check('met een lege wachtrij is er geen bezwaar',
+  koppelen.ontkoppelBezwaar(0) === null)
+
+const eenBezwaar = koppelen.ontkoppelBezwaar(1) ?? ''
+check('met een wijziging staat er enkelvoud',
+  eenBezwaar.includes('wacht nog 1 wijziging'), eenBezwaar)
+
+const meerBezwaar = koppelen.ontkoppelBezwaar(7) ?? ''
+check('en met meer het aantal', meerBezwaar.includes('7 wijzigingen'), meerBezwaar)
+check('en de uitleg zegt waarom het erop staat',
+  meerBezwaar.includes('omzet'), meerBezwaar)
+
+check('forceren zet de rem eraf', koppelen.ontkoppelBezwaar(7, true) === null)
+
+/* ---- de rem zit er ook echt op ---- */
+
+const wachtrijVooraf = await db.outbox.count()
+check('er staat nog iets in de wachtrij van deze test', wachtrijVooraf > 0,
+  String(wachtrijVooraf))
+
+const geweigerd = await koppelen.wisApparaat()
+check('ontkoppelen wordt geweigerd zolang er iets wacht',
+  !geweigerd.ok && (geweigerd.reden ?? '').includes('wachten nog'),
+  geweigerd.reden ?? '')
+check('en dan is er niets gewist', (await db.registers.count()) > 0)
+
+/* ---- en met forceren gaat het door ---- */
+
+const sleutelVooraf = await koppelen.apparaatSleutel()
+
+const gewist = await koppelen.wisApparaat({ forceren: true })
+check('met forceren lukt het wel', gewist.ok, gewist.reden ?? '')
+
+check('de wachtrij is leeg', (await db.outbox.count()) === 0)
+check('de kassa is uit de cache', (await db.registers.count()) === 0)
+check('het personeel ook', (await db.users.count()) === 0)
+check('en de kluis', (await db.safes.count()) === 0 && (await db.safeMoves.count()) === 0)
+check('de gekozen kassa staat niet meer in meta',
+  (await db.meta.get('registerId')) === undefined)
+
+/*
+ * En het enige dat blijft staan. Zonder dit kenmerk is dit apparaat voor de
+ * server een nieuw apparaat, en dan weigert de database een tweede apparaat op
+ * dezelfde kassa -- dus zou hetzelfde apparaat zich niet opnieuw kunnen
+ * koppelen aan de kassa waar het net af kwam.
+ */
+check('het kenmerk van dit apparaat blijft staan',
+  (await koppelen.apparaatSleutel()) === sleutelVooraf)
+
+/* ================================================================== *
+ *  16. De foto bij een artikel
+ *
+ *  Het verkleinen zelf vraagt een canvas en dus een browser; dat is hier niet
+ *  te testen. Wat wél te testen is, is het rekenwerk eromheen -- en dat is
+ *  precies het deel dat stil fout gaat. Een foto die scheef wordt getrokken
+ *  ziet eruit als een slechte foto en niet als een fout in een berekening, en
+ *  een grens die niet klopt merk je pas als elke synchronisatie traag wordt.
+ * ================================================================== */
+
+console.log('\n16. De foto bij een artikel')
+
+check('een grote foto wordt op de lange zijde geschaald',
+  JSON.stringify(beeld.beeldMaten(4000, 3000, 400)) === '{"breedte":400,"hoogte":300}')
+
+check('en staand net zo goed',
+  JSON.stringify(beeld.beeldMaten(3000, 4000, 400)) === '{"breedte":300,"hoogte":400}')
+
+check('vierkant blijft vierkant',
+  JSON.stringify(beeld.beeldMaten(1000, 1000, 400)) === '{"breedte":400,"hoogte":400}')
+
+/*
+ * Niet oprekken. Een foto van tachtig pixels naar vierhonderd blazen geeft een
+ * wazige tegel en een bestand dat vijf keer zo groot is voor dezelfde
+ * informatie.
+ */
+check('een kleine foto wordt niet opgerekt',
+  JSON.stringify(beeld.beeldMaten(80, 60, 400)) === '{"breedte":80,"hoogte":60}')
+
+check('een rare maat geeft nul en geen fout',
+  JSON.stringify(beeld.beeldMaten(0, 100)) === '{"breedte":0,"hoogte":0}')
+
+/* ---- hoe groot is een data-URI ---- */
+
+// "AAAA" is base64 voor drie bytes; met opvulling wordt het minder.
+check('de bytes achter een data-URI worden goed geteld',
+  beeld.dataUriBytes('data:image/jpeg;base64,AAAA') === 3 &&
+  beeld.dataUriBytes('data:image/jpeg;base64,AAA=') === 2 &&
+  beeld.dataUriBytes('data:image/jpeg;base64,AA==') === 1)
+
+check('zonder komma is het niets', beeld.dataUriBytes('rommel') === 0)
+
+/* ---- wat mag er in een img-tag ---- */
+
+const eenGeldige = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
+check('een echte afbeelding komt erdoor',
+  beeld.veiligeAfbeelding(eenGeldige) === eenGeldige)
+
+check('png en webp ook',
+  beeld.veiligeAfbeelding('data:image/png;base64,iVBORw0K') !== null &&
+  beeld.veiligeAfbeelding('data:image/webp;base64,UklGRg==') !== null)
+
+/*
+ * En wat er niet in mag. De waarde komt uit de database en dus van buiten dit
+ * apparaat. In een img-tag doet een stuk html niets, maar "alleen
+ * afbeeldingen" is een regel die je opschrijft in plaats van aanneemt.
+ */
+check('html vermomd als afbeelding komt er niet door',
+  beeld.veiligeAfbeelding('data:text/html;base64,PHNjcmlwdD4=') === null)
+check('een gewoon adres ook niet',
+  beeld.veiligeAfbeelding('https://ergens/plaatje.jpg') === null)
+check('en rommel in de base64 evenmin',
+  beeld.veiligeAfbeelding('data:image/jpeg;base64,<script>') === null)
+check('leeg is leeg',
+  beeld.veiligeAfbeelding('') === null && beeld.veiligeAfbeelding(undefined) === null)
+
+/* ---- de grenzen ---- */
+
+check('de bovengrens past ruim onder wat de database toestaat',
+  // 150000 tekens in de kolom; base64 maakt bytes ongeveer een derde groter.
+  Math.ceil((beeld.MAX_BYTES * 4) / 3) < 150000)
+
+check('de kwaliteiten lopen af en blijven bruikbaar',
+  beeld.KWALITEITEN.every((k, i, r) => i === 0 || k < r[i - 1]) &&
+  beeld.KWALITEITEN[beeld.KWALITEITEN.length - 1] >= 0.25)
+
+check('de grootte leest als een grootte',
+  beeld.bytesKort(512) === '512 B' &&
+  beeld.bytesKort(47128) === '46 kB' &&
+  beeld.bytesKort(3_500_000) === '3.3 MB')
 
 await db.close()
 

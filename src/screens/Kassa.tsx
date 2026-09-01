@@ -6,6 +6,7 @@ import {
 import Afrekenen from './Afrekenen'
 import { Dialoog, Knop, Leeg, Pil, Regel, Veld } from '../components/ui'
 import { db } from '../lib/db'
+import { veiligeAfbeelding } from '../lib/afbeelding'
 import { money } from '../lib/format'
 import { regelTotaal } from '../lib/geld'
 import { useScanner } from '../lib/hardware/scanner'
@@ -313,14 +314,37 @@ export default function Kassa({ register }: { register: PosRegister }) {
               }
             />
           ) : (
-            <div className="tegels">
+            /*
+              Reserveer de fotoruimte alleen als er in deze lijst iets een foto
+              heeft.
+
+              Zonder die voorwaarde werd elke tegel zonder foto een lege doos:
+              het rooster maakt alle tegels in een rij even hoog, dus stond de
+              koffie als een halfleeg vak naast een flesje met een plaatje. En
+              wie nog geen enkele foto heeft toegevoegd, hoort er ook geen
+              ruimte voor te zien.
+            */
+            <div className={`tegels ${zichtbaar.some((p) => veiligeAfbeelding(p.image)) ? 'fotos' : ''}`}>
               {zichtbaar.map((p) => (
                 <button
                   key={p.id}
                   type="button"
-                  className={`tegel ${p.kind}`}
+                  className={`tegel ${p.kind} ${p.image ? 'metfoto' : ''}`}
                   onClick={() => tik(p)}
                 >
+                  {/*
+                    De foto bovenaan, en de naam blijft eronder staan.
+                    Alleen een plaatje zou sneller lijken, maar dan verkoop je
+                    de zomerruitenwisservloeistof in januari -- de naam is wat
+                    het beslist, de foto is wat het vindt.
+                  */}
+                  {veiligeAfbeelding(p.image) ? (
+                    <img className="tegelfoto" src={veiligeAfbeelding(p.image)!} alt="" />
+                  ) : (
+                    <span className="tegelfoto-leeg" aria-hidden="true">
+                      {p.name.trim().slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
                   <div>
                     <div className="naam">{p.name}</div>
                     {p.kind === 'strippenkaart' && (

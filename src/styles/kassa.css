@@ -1368,3 +1368,80 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
 
 .opslot h2 { margin: 0; font-size: 24px; }
 .opslot p { max-width: 480px; color: var(--text-2); line-height: 1.6; margin: 0; }
+
+/* ------------------------------------------------------------------ *
+ *  De foto bij een artikel
+ *
+ *  Op de tegel bovenaan, met de naam en de prijs eronder. Alleen een plaatje
+ *  zou sneller lijken, maar dan verkoop je de zomervloeistof in januari: de
+ *  naam beslist, de foto vindt.
+ * ------------------------------------------------------------------ */
+
+.tegelfoto {
+  width: 100%;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  /* Wit eronder: een foto met een lichte achtergrond mag niet in de donkere
+     tegel lijken te zweven. */
+  background: #fff;
+  display: block;
+}
+
+/*
+ * Staat er in deze lijst ergens een foto, dan krijgt elke tegel dezelfde vorm.
+ * Anders wordt het rooster een trap: het maakt tegels in een rij even hoog, en
+ * dan staat de koffie als halfleeg vak naast een flesje met een plaatje.
+ *
+ * Heeft niemand een foto toegevoegd, dan blijft het scherm zoals het was.
+ */
+.tegels.fotos .tegel { min-height: 168px; }
+
+.tegelfoto-leeg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /*
+   * width: 100% moet erbij, en dat is niet vanzelfsprekend. De foto ernaast
+   * heeft het ook -- en zonder werd dit vakje net zo breed als de letter erin:
+   * een streepje van twintig pixels naast een tegel met een plaatje.
+   */
+  width: 100%;
+  height: 84px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--line-soft);
+  background: var(--bg-2);
+  /* Zacht: de naam eronder moet het gesprek voeren, niet deze letter. */
+  color: var(--line);
+  font-size: 30px;
+  font-weight: 800;
+}
+
+/* Zonder foto's in de lijst hoort er ook geen lege plek te staan. */
+.tegels:not(.fotos) .tegelfoto-leeg { display: none; }
+
+/* ------------------------------------------------------------------ *
+ *  En dezelfde foto klein, in het beheerscherm
+ * ------------------------------------------------------------------ */
+
+.artikelfoto {
+  object-fit: cover;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+  display: block;
+  flex: none;
+}
+
+.artikelfoto-leeg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-2);
+  color: var(--text-3);
+}
+
+@media (max-width: 720px) {
+  .tegelfoto, .tegelfoto-leeg { height: 70px; }
+  .tegels.fotos .tegel { min-height: 150px; }
+}

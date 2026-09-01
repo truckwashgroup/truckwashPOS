@@ -60,8 +60,39 @@ new Promise((klaar) => {
         roles: ['employee'], active: true, locationId: 'loc_demo', updatedAt: nu },
     ]
 
+    /*
+     * Nepfoto's, hier ter plekke getekend.
+     *
+     * Geen bestanden erbij dus, en het loopt langs dezelfde weg als een echte
+     * foto: een canvas, toDataURL als JPEG, en daarna door veiligeAfbeelding
+     * heen. Zo laat de afdruk ook zien dat die weg werkt.
+     */
+    const nepfoto = (kleur, dop) => {
+      const doek = document.createElement('canvas')
+      doek.width = 240
+      doek.height = 240
+      const pen = doek.getContext('2d')
+      pen.fillStyle = '#f4f5f7'
+      pen.fillRect(0, 0, 240, 240)
+      // een flesje: dop, hals, romp, etiket
+      pen.fillStyle = dop
+      pen.fillRect(100, 28, 40, 26)
+      pen.fillStyle = kleur
+      pen.fillRect(106, 54, 28, 26)
+      pen.beginPath()
+      pen.roundRect(72, 78, 96, 132, 14)
+      pen.fill()
+      pen.fillStyle = 'rgba(255,255,255,.85)'
+      pen.fillRect(72, 118, 96, 46)
+      pen.fillStyle = kleur
+      pen.fillRect(80, 132, 60, 6)
+      pen.fillRect(80, 146, 42, 6)
+      return doek.toDataURL('image/jpeg', 0.8)
+    }
+
     const t = db.transaction(
-      ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves'], 'readwrite')
+      ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves', 'products'],
+      'readwrite')
     for (const m of mensen) t.objectStore('users').put(m)
     t.objectStore('locations').put({
       id: 'loc_demo', code: 'TW-UTR', name: 'Utrecht', kind: 'vestiging',
@@ -74,6 +105,30 @@ new Promise((klaar) => {
       lastSeq: 0, active: true, updatedAt: nu,
     })
     t.objectStore('meta').put({ key: 'registerId', value: 'reg_demo' })
+
+    // Artikelen, met en zonder foto, zodat beide standen op de afdruk staan.
+    const artikelen = [
+      { id: 'a1', code: 'A001', name: 'Koffie', groupName: 'Shop', unit: 'beker',
+        priceIncl: 2.5, vatPct: 9, kind: 'artikel', sort: 10 },
+      { id: 'a2', code: 'A010', name: 'Ruitenwisservloeistof zomer', groupName: 'Shop',
+        unit: 'fles', priceIncl: 7.95, vatPct: 21, kind: 'artikel', sort: 20,
+        image: nepfoto('#2f7ed8', '#1b4f8f') },
+      { id: 'a3', code: 'A011', name: 'Ruitenwisservloeistof winter', groupName: 'Shop',
+        unit: 'fles', priceIncl: 9.5, vatPct: 21, kind: 'artikel', sort: 30,
+        image: nepfoto('#7a3fd8', '#4c208f') },
+      { id: 'a4', code: 'A020', name: 'Handreiniger', groupName: 'Shop',
+        unit: 'fles', priceIncl: 4.75, vatPct: 21, kind: 'artikel', sort: 40,
+        image: nepfoto('#e0a11b', '#9c6c0d') },
+      { id: 'a5', code: 'A030', name: 'Microvezeldoek', groupName: 'Shop',
+        unit: 'stuk', priceIncl: 3.25, vatPct: 21, kind: 'artikel', sort: 50 },
+      { id: 'a6', code: 'W001', name: 'Buitenwas', groupName: 'Wassen', unit: 'stuk',
+        priceIncl: 78.65, vatPct: 21, kind: 'wasbeurt', washService: 'buitenwas', sort: 10 },
+    ]
+    for (const a of artikelen) {
+      t.objectStore('products').put({
+        locationId: 'loc_demo', active: true, updatedAt: nu, ...a,
+      })
+    }
 
     // Een kluis met iets erin, anders is het kluisscherm een lege doos.
     t.objectStore('safes').put({
@@ -130,6 +185,12 @@ const AFDRUKKEN = [
   { naam: 'kluis-tellen', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis', knop: 'Kluis tellen' },
   { naam: 'muziek', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Muziek' },
   { naam: 'beheer', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Beheer' },
+  { naam: 'beheer-kassa', thema: 'donker', breedte: 1366, hoogte: 1000, zaad: true, nummer: '014',
+    tab: 'Beheer', knop: 'Deze kassa' },
+  { naam: 'ontkoppelen', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014',
+    tab: 'Beheer', knop: ['Deze kassa', 'Ontkoppelen'] },
+  { naam: 'artikel-foto', thema: 'donker', breedte: 1366, hoogte: 1000, zaad: true,
+    nummer: '014', tab: 'Beheer', knop: ['@table.tabel tbody tr:nth-child(2)'] },
   { naam: 'speler', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },
   { naam: 'speler-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },
 ]
@@ -232,17 +293,27 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop }) {
    * knop. Een deel van de app dat je nooit ziet, is een deel waar een fout
    * ongestoord in blijft zitten.
    */
-  if (knop) {
+  // Eén knop of een rijtje achter elkaar, want soms zit iets twee klikken diep.
+  for (const label of (Array.isArray(knop) ? knop : knop ? [knop] : [])) {
+    /*
+     * Een knop op zijn tekst, of -- met @ ervoor -- iets anders op een
+     * CSS-kiezer. Dat tweede is er voor rijen in een tabel: die zijn geen
+     * knop, en juist wat daarachter zit (het artikelformulier) wil je op een
+     * afdruk kunnen zien.
+     */
     const gelukt = await win.webContents.executeJavaScript(`
       (() => {
-        const doel = [...document.querySelectorAll('button')]
-          .find((b) => b.textContent && b.textContent.includes(${JSON.stringify(knop)}))
+        const kiezer = ${JSON.stringify(label)}
+        const doel = kiezer.startsWith('@')
+          ? document.querySelector(kiezer.slice(1))
+          : [...document.querySelectorAll('button')]
+              .find((b) => b.textContent && b.textContent.includes(kiezer))
         if (!doel) return false
         doel.click()
         return true
       })()
     `)
-    if (!gelukt) console.log(`  (${naam}: knop "${knop}" niet gevonden)`)
+    if (!gelukt) console.log(`  (${naam}: knop "${label}" niet gevonden)`)
     await wacht(900)
   }
 

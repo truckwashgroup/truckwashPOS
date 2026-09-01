@@ -128,6 +128,15 @@ export interface PosProduct {
   inventoryItemId?: string
   sort: number
   color?: string
+  /**
+   * Een foto, als data-URI.
+   *
+   * In de rij en niet achter een URL, want de kassa moet het zonder internet
+   * doen -- een foto achter een adres is een grijs vlak zodra de lijn eruit
+   * ligt. De kassa verkleint elke foto vóór het opslaan; zie afbeelding.ts voor
+   * de grenzen en waarom ze er zijn.
+   */
+  image?: string
   active: boolean
   updatedAt: number
 }

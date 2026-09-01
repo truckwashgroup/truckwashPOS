@@ -6,7 +6,8 @@ import { storageGet, storageRemove, storageSet } from '../lib/storage'
 import { LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
 import { herkenBadge, herkenOpNummer } from '../lib/code'
 import {
-  bewaardeInlog, inlogBewaren, koppelMetCode, type KoppelUitslag,
+  bewaardeInlog, inlogBewaren, koppelMetCode, wisApparaat,
+  type KoppelUitslag,
 } from '../lib/koppelen'
 import type { User } from '../lib/types'
 
@@ -57,6 +58,14 @@ interface AuthStore {
    * waarom dat beter is dan iemands wachtwoord op een tablet achter de balie.
    */
   koppel: (code: string) => Promise<KoppelUitslag>
+  /**
+   * Dit apparaat helemaal loskoppelen, zodat er een nieuwe code in kan.
+   *
+   * Meer dan uitloggen: ook de gegevens van deze vestiging gaan eruit. Een
+   * kassa die naar een andere vestiging verhuist mag daar niet met de
+   * artikelen en het personeel van de vorige aankomen.
+   */
+  ontkoppel: (opties?: { forceren?: boolean }) => Promise<{ ok: boolean; reden?: string }>
   login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
 
@@ -253,6 +262,25 @@ export const useAuth = create<AuthStore>((set, get) => ({
       set({ error: e instanceof Error ? e.message : 'Inloggen mislukt', busy: false })
       return false
     }
+  },
+
+  ontkoppel: async (opties) => {
+    /*
+     * De volgorde is niet vrij.
+     *
+     * Eerst wissen, en dan pas de sessie weggooien: wisApparaat kan nog willen
+     * versturen (bij een intrekking) en dat kan niet meer zonder sessie. En als
+     * wissen wordt geweigerd omdat er nog een wachtrij staat, moet de kassa
+     * gewoon door kunnen -- dan is er niets gebeurd.
+     */
+    const uitslag = await wisApparaat({ forceren: opties?.forceren })
+    if (!uitslag.ok) return uitslag
+
+    setSyncEnabled(false)
+    await storageRemove(SESSION_KEY)
+    await supabaseSignOut()
+    set({ apparaat: null, operator: null, error: null })
+    return { ok: true }
   },
 
   logout: async () => {

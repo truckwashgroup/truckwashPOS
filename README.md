@@ -142,6 +142,27 @@ direct onderuit, dan kan de omzet die nog op dat apparaat stond nergens meer
 aankomen — en die staat dan nergens. Zolang er iets in de wachtrij staat, laat
 de kassa dat groot in beeld zien in plaats van zich te wissen.
 
+### Deze kassa ontkoppelen
+
+**Beheer → Deze kassa → Kassa ontkoppelen.** Maakt dit apparaat los, zodat er
+een nieuwe koppelcode in kan. Vraagt het recht `pos.manage`.
+
+Dit is iets anders dan afmelden. Afmelden gaat over wie er achter de kassa
+staat en wisselt de hele dag; ontkoppelen gaat over het apparaat, en dan gaat
+ook de leeskopie van deze vestiging eruit — een kassa die naar Rotterdam
+verhuist mag daar niet aankomen met de artikelen, het personeel en de kluis van
+Utrecht.
+
+De wachtrij gaat voor. Staat er nog iets in, dan is de knop uit, met "Nu
+versturen" ernaast: daarin kan omzet zitten die nergens anders bestaat. Kan een
+kassa de server echt niet meer bereiken, dan zit er een tweede weg onder die
+vraagt om de code van de kassa letterlijk in te tikken. Wat er dan in de
+wachtrij stond is weg, en er komt een regel in het logboek.
+
+Wat blijft staan is het kenmerk van dit apparaat. Daardoor herkent de server hem
+na een nieuwe code als hetzelfde apparaat in plaats van als een tweede op
+dezelfde kassa — en dat laatste weigert de database.
+
 > **Twee apparaten nooit op dezelfde kassa.** De bonnummering loopt op het
 > apparaat door, dus twee kassa's met dezelfde code delen dezelfde nummers uit.
 > Dit houdt de database nu tegen (`pos_devices`, één actief apparaat per kassa) —
@@ -162,6 +183,27 @@ Vier soorten:
 - **Strippenkaart** — een aantal beurten vooruit betaald. De code komt als
   QR-code op de bon.
 - **Abonnement** — een periode onbeperkt wassen.
+
+#### Een foto bij het artikel
+
+Onder het formulier van een artikel staat **Foto**. Op een tablet opent die knop
+meteen de camera; op de Windows-kassa kies je een bestand.
+
+Dat is geen opsmuk. Aan een balie zoek je niet op naam maar op hoe iets
+eruitziet: twee flessen ruitenwisservloeistof van hetzelfde merk verschillen
+een letter in de naam en een kleur op het etiket, en wie er de hele dag staat
+kiest op die kleur. Zodra één artikel een foto heeft, krijgen alle tegels in dat
+lijstje dezelfde vorm — anders wordt het rooster een trap.
+
+De foto gaat **in de artikelrij** mee en niet in een bestandsopslag achter een
+URL. Dat is met opzet: de kassa moet het zonder internet doen, en een foto
+achter een adres is een grijs vlak zodra de lijn eruit ligt. De prijs daarvan is
+grootte, en die wordt hier betaald: wat uit een tabletcamera komt is
+megabytes, wat een tegel nodig heeft is tienden van een kilobyte. Elke foto
+wordt daarom op het apparaat verkleind tot maximaal 400 pixels op de lange
+zijde en samengeperst tot onder 48 kB, met de kwaliteit stap voor stap omlaag
+tot het past. Lukt dat niet, dan zegt de kassa dat in plaats van hem alsnog op
+te slaan. De database heeft er een tweede rem onder (150 kB per rij).
 
 ### 5. Klant voor losse ritten
 

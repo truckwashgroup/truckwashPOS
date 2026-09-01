@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import QRCode from 'qrcode'
 import {
-  BadgeCheck, Banknote, Bell, CreditCard, Download, KeyRound, Package, Plus,
-  Printer, RefreshCw, Settings, Trash2,
+  BadgeCheck, Banknote, Bell, Camera, CreditCard, Download, ImageOff, KeyRound,
+  Link2Off, Monitor, Package, Plus, Printer, RefreshCw, Settings, Trash2,
 } from 'lucide-react'
-import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld, Waarschuwing } from '../components/ui'
+import {
+  Dialoog, Fout, Knop, Leeg, Pil, Regel, Uitleg, Veld, Waarschuwing,
+} from '../components/ui'
 import { db, uid } from '../lib/db'
-import { money } from '../lib/format'
+import { dateTime, money } from '../lib/format'
 import { badgeIntrekken, badgeMaken, nummersNakijken } from '../lib/code'
 import { kanAfdrukken, openLade, proefBon } from '../lib/hardware/printer'
 import { TERMINAL_LABELS } from '../lib/hardware/terminal'
@@ -17,6 +19,13 @@ import { BEWEGING_LABELS, THEMA_LABELS, useTheme } from '../lib/theme'
 import {
   kanPlannen, planMelding, soortApparaat, type MeldingUitslag,
 } from '../lib/hardware/melding'
+import {
+  huidigApparaat, intrekkingStand, ontkoppelBezwaar,
+} from '../lib/koppelen'
+import {
+  bytesKort, veiligeAfbeelding, verkleinAfbeelding,
+} from '../lib/afbeelding'
+import type { PosDevice } from '../lib/types'
 import { enqueue, useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
 import { useAuth } from '../store/useAuth'
@@ -159,6 +168,7 @@ function Artikelen({ register }: { register: PosRegister }) {
         <table className="tabel">
           <thead>
             <tr>
+              <th style={{ width: 52 }} />
               <th>Naam</th>
               <th>Groep</th>
               <th>Soort</th>
@@ -175,6 +185,14 @@ function Artikelen({ register }: { register: PosRegister }) {
                 onClick={() => setBewerken(p)}
                 style={{ cursor: 'pointer', opacity: p.active ? 1 : 0.5 }}
               >
+                <td>
+                  {/*
+                    Het plaatje staat ook in de beheerlijst, en niet alleen op
+                    het kassascherm. Zo zie je in één blik welke artikelen er nog
+                    geen hebben -- anders moet je ze één voor één openklikken.
+                  */}
+                  <Artikelfoto foto={p.image} naam={p.name} maat={38} />
+                </td>
                 <td>{p.name}</td>
                 <td>{p.groupName}</td>
                 <td>{PRODUCT_KIND_LABELS[p.kind]}</td>
@@ -356,8 +374,152 @@ function ArtikelBewerken({
         </Veld>
       </div>
 
+      <div style={{ marginTop: 18 }}>
+        <Fotoveld
+          foto={p.image}
+          naam={p.name}
+          onFoto={(f) => zet('image', f)}
+        />
+      </div>
+
       {fout && <div style={{ marginTop: 14 }}><Fout>{fout}</Fout></div>}
     </Dialoog>
+  )
+}
+
+/* ================================================================== *
+ *  De foto bij een artikel
+ *
+ *  Aan een balie zoek je niet op naam maar op hoe iets eruitziet. Twee flessen
+ *  van hetzelfde merk verschillen een letter in de naam en een kleur op het
+ *  etiket, en wie er de hele dag staat kiest op die kleur.
+ *
+ *  Wat hier gebeurt en wat niet: de foto wordt op dit apparaat verkleind en
+ *  samengeperst voordat hij in het artikel gaat. Wat uit de camera van een
+ *  tablet komt is megabytes; wat een tegel nodig heeft is tienden van een
+ *  kilobyte. Zonder die stap sleept elke kassa bij elke synchronisatie de
+ *  volledige camerafoto mee -- en dat merk je pas als het te laat is.
+ * ================================================================== */
+
+function Artikelfoto({
+  foto, naam, maat,
+}: { foto?: string; naam: string; maat: number }) {
+  const veilig = veiligeAfbeelding(foto)
+
+  if (!veilig) {
+    return (
+      <div
+        /*
+          Niet "leeg" als klassenaam: die bestaat al in de app -- de doos met
+          "er is hier niets", met veertig pixels padding. Dat kostte bij het
+          muntenbord al een half uur zoeken naar een bord dat scheef stond.
+        */
+        className="artikelfoto artikelfoto-leeg"
+        style={{ width: maat, height: maat }}
+        title="Nog geen foto"
+      >
+        <ImageOff size={Math.round(maat * 0.42)} />
+      </div>
+    )
+  }
+
+  return (
+    <img
+      className="artikelfoto"
+      src={veilig}
+      alt={naam}
+      style={{ width: maat, height: maat }}
+    />
+  )
+}
+
+function Fotoveld({
+  foto, naam, onFoto,
+}: { foto?: string; naam: string; onFoto: (f: string | undefined) => void }) {
+  const [bezig, setBezig] = useState(false)
+  const [melding, setMelding] = useState<string | null>(null)
+  const [fout, setFout] = useState<string | null>(null)
+
+  async function kies(bestanden: FileList | null) {
+    const bestand = bestanden?.[0]
+    if (!bestand) return
+
+    setBezig(true)
+    setFout(null)
+    setMelding(null)
+
+    const uitslag = await verkleinAfbeelding(bestand)
+    setBezig(false)
+
+    if (!uitslag.ok || !uitslag.dataUri) {
+      setFout(uitslag.reden ?? 'Deze foto lukte niet.')
+      return
+    }
+
+    onFoto(uitslag.dataUri)
+    setMelding(
+      `${bytesKort(uitslag.vanBytes ?? 0)} teruggebracht naar ` +
+      `${bytesKort(uitslag.naarBytes ?? 0)} (${uitslag.breedte}x${uitslag.hoogte}). ` +
+      'Nog niet opgeslagen — dat gaat met Opslaan.')
+  }
+
+  return (
+    <div className="kaart" style={{ marginBottom: 0 }}>
+      <h3>
+        <Camera size={16} style={{ verticalAlign: -3, marginRight: 7 }} />
+        Foto
+      </h3>
+
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <Artikelfoto foto={foto} naam={naam} maat={104} />
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p className="uitleg" style={{ marginTop: 0 }}>
+            Komt op de tegel op het kassascherm. Aan een balie kiest iemand
+            sneller op een plaatje dan op een naam — en bij twee flessen van
+            hetzelfde merk is dat het verschil.
+          </p>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/*
+              Een label om een verborgen invoerveld: een bestandsknop is in elke
+              browser anders opgemaakt en past nergens bij. capture laat een
+              tablet meteen de camera openen in plaats van de bestandenlijst --
+              en dat is daar bijna altijd wat je wil.
+            */}
+            <label className={`knop ${bezig ? '' : 'hoofd'}`} style={{ cursor: 'pointer' }}>
+              <Camera size={17} />
+              {bezig ? 'Bezig…' : foto ? 'Andere foto' : 'Foto kiezen'}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                disabled={bezig}
+                onChange={(e) => { void kies(e.target.files); e.target.value = '' }}
+              />
+            </label>
+
+            {foto && (
+              <Knop
+                soort="stil"
+                onClick={() => { onFoto(undefined); setMelding(null); setFout(null) }}
+              >
+                <Trash2 size={16} /> Foto weghalen
+              </Knop>
+            )}
+          </div>
+
+          {melding && <div style={{ marginTop: 12 }}><Uitleg>{melding}</Uitleg></div>}
+          {fout && <div style={{ marginTop: 12 }}><Fout>{fout}</Fout></div>}
+
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
+            De foto wordt op dit apparaat verkleind en gaat daarna in het artikel
+            mee. Zo staat hij ook op het scherm als het internet eruit ligt.
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -809,21 +971,281 @@ function DezeKassa({ register }: { register: PosRegister }) {
           </p>
         </div>
 
+        {/*
+          Code en naam staan hier alleen nog om te lezen.
+
+          Ze waren in te vullen, en dat kan niet meer: sinds een kassa met een
+          code gekoppeld wordt, komen de kassa's uit het dashboard, en de
+          database weigert een apparaat dat zijn eigen code of naam omzet. Zou
+          het veld hier blijven staan, dan kon je iets intikken wat pas bij de
+          volgende synchronisatie geweigerd werd -- en dan staat de fout ver van
+          de handeling af.
+        */}
         <div className="kaart">
           <h3>Kassa</h3>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
-            <Veld label="Code" hint="Hiermee beginnen de bonnummers. Wijzigen begint een nieuwe reeks.">
-              <input value={r.code} onChange={(e) => setR({ ...r, code: e.target.value.toUpperCase() })} />
+            <Veld label="Code" hint="Hiermee beginnen de bonnummers.">
+              <input className="cijfers" value={r.code} readOnly disabled />
             </Veld>
             <Veld label="Naam">
-              <input value={r.name} onChange={(e) => setR({ ...r, name: e.target.value })} />
+              <input value={r.name} readOnly disabled />
             </Veld>
           </div>
+          <p className="uitleg" style={{ marginTop: 10, marginBottom: 0 }}>
+            De code en de naam komen uit het dashboard, bij Kassa&apos;s. Dat is
+            met opzet: het bonnummer begint met de code, en die hoort niet op
+            twee plekken tegelijk gezet te kunnen worden.
+          </p>
         </div>
 
         <Knop soort="hoofd" breed onClick={() => void bewaar()}>Instellingen opslaan</Knop>
+
+        <Ontkoppelen register={r} />
       </div>
     </div>
+  )
+}
+
+/* ================================================================== *
+ *  Deze kassa ontkoppelen
+ *
+ *  Zodat er een nieuwe code in kan, en zonder dat er iemand met SQL aan de
+ *  database moet komen.
+ *
+ *  Waarom dit los staat van "afmelden": afmelden gaat over wie er achter de
+ *  kassa staat, en dat wisselt de hele dag. Dit gaat over het apparaat zelf --
+ *  en dan hoort ook de leeskopie van deze vestiging eruit. Een kassa die naar
+ *  Rotterdam verhuist mag daar niet aankomen met de artikelen, het personeel
+ *  en de kluis van Utrecht.
+ *
+ *  De wachtrij gaat voor. Wat daarin staat bestaat nergens anders: een bon die
+ *  is afgerekend en afgedrukt maar nog niet verstuurd, is omzet die alleen op
+ *  dit apparaat staat. Daarom is de knop uit zolang er iets wacht, met een knop
+ *  ernaast om het nu te versturen -- en zit er een tweede weg onder voor het
+ *  geval een kassa de server echt niet meer kan bereiken. Die vraagt om de
+ *  code van de kassa, letterlijk ingetikt, want dat is het enige moment in de
+ *  hele kassa waarop er met opzet iets uit de administratie verdwijnt.
+ * ================================================================== */
+
+function Ontkoppelen({ register }: { register: PosRegister }) {
+  const { operator, ontkoppel } = useAuth()
+  const { pending, syncing, online, lastError, sync } = useSync()
+  const [open, setOpen] = useState(false)
+  const [apparaat, setApparaat] = useState<PosDevice | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [bevestiging, setBevestiging] = useState('')
+  const [toch, setToch] = useState(false)
+
+  const mag = can(operator, 'pos.manage')
+
+  useEffect(() => { void huidigApparaat().then(setApparaat) }, [open])
+
+  /*
+   * De wachtrij uit de synchronisatie én uit de database.
+   *
+   * De teller in de balk wordt bijgehouden terwijl de app draait; hier telt het
+   * te veel om op dat ene getal te vertrouwen. Dus kijken we bij het openen nog
+   * een keer in de database zelf.
+   */
+  const [wachtrij, setWachtrij] = useState(pending)
+  useEffect(() => {
+    if (!open) return
+    let gestopt = false
+    const kijk = async () => {
+      const stand = await intrekkingStand()
+      if (!gestopt) setWachtrij(stand.wachtrij)
+    }
+    void kijk()
+    const tik = setInterval(kijk, 3000)
+    return () => { gestopt = true; clearInterval(tik) }
+  }, [open, pending])
+
+  const bezwaar = ontkoppelBezwaar(wachtrij, toch)
+  const codeKlopt = bevestiging.trim().toUpperCase() === register.code.toUpperCase()
+
+  async function doeHet() {
+    setBezig(true)
+    setFout(null)
+    const uitslag = await ontkoppel({ forceren: toch })
+    if (!uitslag.ok) {
+      setFout(uitslag.reden ?? 'Ontkoppelen lukte niet.')
+      setBezig(false)
+      return
+    }
+    /*
+     * Geen toast en geen sluiten: de app valt vanaf hier terug naar het
+     * koppelscherm, want er is geen kassa meer om dit scherm op te tekenen.
+     */
+    toast.ok('Deze kassa is ontkoppeld. Vul een nieuwe koppelcode in.')
+  }
+
+  if (!mag) {
+    return (
+      <div className="kaart">
+        <h3>
+          <Link2Off size={16} style={{ verticalAlign: -3, marginRight: 7 }} />
+          Kassa ontkoppelen
+        </h3>
+        <Uitleg>
+          Dit apparaat losmaken van deze kassa vraagt het recht
+          &quot;Kassa beheren&quot;. Dat deelt het management uit in het
+          dashboard, onder Personeel → Rechten.
+        </Uitleg>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="kaart">
+        <h3>
+          <Link2Off size={16} style={{ verticalAlign: -3, marginRight: 7 }} />
+          Kassa ontkoppelen
+        </h3>
+        <p className="uitleg">
+          Maakt dit apparaat los van {register.code}, zodat er een nieuwe
+          koppelcode in kan. De gegevens van deze vestiging gaan er ook uit —
+          een kassa die verhuist, hoort daar niet aan te komen met de artikelen
+          en het personeel van de vorige.
+        </p>
+
+        {apparaat && (
+          <div style={{ marginBottom: 14 }}>
+            <Regel label="Apparaat" waarde={apparaat.name || '—'} />
+            <Regel label="Gekoppeld op" waarde={dateTime(apparaat.pairedAt)} />
+            <Regel
+              label="Status"
+              waarde={apparaat.status === 'actief' ? 'actief' : apparaat.status}
+            />
+          </div>
+        )}
+
+        {!apparaat && (
+          <div style={{ marginBottom: 14 }}>
+            <Uitleg>
+              Deze kassa is nog niet met een koppelcode gekoppeld — hij is
+              ingericht toen dat nog met een account ging. Ontkoppelen mag; daarna
+              vraagt hij om een code.
+            </Uitleg>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Knop soort="gevaar" onClick={() => { setOpen(true); setToch(false); setFout(null) }}>
+            <Link2Off size={16} /> Ontkoppelen
+          </Knop>
+          <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+            {pending > 0
+              ? `${pending} wijziging(en) wachten nog op verzending`
+              : 'de wachtrij is leeg'}
+          </span>
+        </div>
+      </div>
+
+      {open && (
+        <Dialoog
+          titel="Deze kassa ontkoppelen"
+          onSluiten={() => setOpen(false)}
+          voet={
+            <>
+              <Knop soort="stil" onClick={() => setOpen(false)}>Annuleren</Knop>
+              <Knop
+                soort="gevaar"
+                onClick={() => void doeHet()}
+                disabled={bezig || Boolean(bezwaar) || (toch && !codeKlopt)}
+              >
+                {bezig ? 'Bezig…' : 'Ontkoppelen'}
+              </Knop>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              Dit apparaat wordt losgemaakt van <strong>{register.code}</strong>.
+              Daarna staat het koppelscherm klaar en kun je een nieuwe code
+              intikken.
+            </div>
+
+            <Uitleg>
+              Wat eruit gaat: de sessie van dit apparaat, en de leeskopie van
+              deze vestiging — artikelen, personeel, bonnen, kluis. Die komen na
+              een nieuwe koppeling terug uit de database.
+              <div style={{ marginTop: 8 }}>
+                Wat blijft: het kenmerk van dit apparaat. Daardoor herkent het
+                dashboard hem na een nieuwe code als hetzelfde apparaat, in
+                plaats van als een tweede op dezelfde kassa.
+              </div>
+            </Uitleg>
+
+            {wachtrij > 0 ? (
+              <>
+                <Waarschuwing>
+                  <strong>Er staat nog {wachtrij} wijziging(en) in de wachtrij.</strong>
+                  <div style={{ marginTop: 8 }}>
+                    Daar kan omzet in zitten die nergens anders bestaat — een bon
+                    die is afgerekend en afgedrukt maar de server nog niet heeft
+                    gehaald. Stuur die eerst weg; daarna kan het ontkoppelen.
+                  </div>
+                  <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <Knop maat="klein" onClick={() => void sync()} disabled={syncing}>
+                      <RefreshCw size={15} /> {syncing ? 'Bezig…' : 'Nu versturen'}
+                    </Knop>
+                    <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+                      {online ? 'er is verbinding' : 'geen verbinding'}
+                    </span>
+                  </div>
+                  {lastError && (
+                    <div style={{ marginTop: 8, fontSize: 12.5 }}>
+                      Laatste poging: {lastError}
+                    </div>
+                  )}
+                </Waarschuwing>
+
+                {/*
+                  De noodweg. Hij hoort erbij, want een kassa die de server niet
+                  meer kan bereiken zou anders voorgoed vastzitten -- maar hij
+                  hoort ook niet per ongeluk gevonden te worden. Vandaar dat de
+                  code van de kassa ingetikt moet worden: dat is niet moeilijk,
+                  maar het is niet iets wat je doet zonder te lezen wat er staat.
+                */}
+                {!toch ? (
+                  <Knop soort="stil" maat="klein" onClick={() => setToch(true)}>
+                    De server is niet te bereiken — toch ontkoppelen
+                  </Knop>
+                ) : (
+                  <Fout>
+                    <strong>Dan gaan die {wachtrij} wijziging(en) weg.</strong>
+                    <div style={{ marginTop: 8 }}>
+                      Ze staan alleen op dit apparaat, dus daarna bestaan ze
+                      nergens meer. Er komt een regel in het logboek, en die is
+                      in het dashboard terug te zien onder Ontwikkeling.
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      <Veld
+                        label={`Tik ${register.code} in om te bevestigen`}
+                        hint="Zo gebeurt dit niet met één verkeerde tik."
+                      >
+                        <input
+                          value={bevestiging}
+                          onChange={(e) => setBevestiging(e.target.value)}
+                          placeholder={register.code}
+                          autoFocus
+                        />
+                      </Veld>
+                    </div>
+                  </Fout>
+                )}
+              </>
+            ) : (
+              <Uitleg>De wachtrij is leeg — er gaat niets verloren.</Uitleg>
+            )}
+
+            {fout && <Fout>{fout}</Fout>}
+          </div>
+        </Dialoog>
+      )}
+    </>
   )
 }
 

@@ -306,7 +306,17 @@ export async function apparaatGezien(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ *
- *  Op afstand eruit
+ *  Eruit: op afstand, of hier aan de kassa zelf
+ *
+ *  Twee wegen naar dezelfde plek, en de tweede is er omdat de eerste niet
+ *  altijd kan. Op afstand intrekken werkt alleen als er iemand achter een
+ *  dashboard zit; staat er een kassa die verhuisd is of opnieuw ingericht moet
+ *  worden, dan moet dat ook aan de balie kunnen -- zonder dat er iemand met
+ *  SQL aan de database komt.
+ *
+ *  Wat in beide gevallen hetzelfde is: de wachtrij gaat voor. Een kassa die
+ *  zich wist terwijl er nog een bon in staat, gooit omzet weg die nergens
+ *  anders bestaat.
  * ------------------------------------------------------------------ */
 
 export interface IntrekkingStand {
@@ -322,36 +332,78 @@ export async function intrekkingStand(): Promise<IntrekkingStand> {
 }
 
 /**
- * Zichzelf wissen na een intrekking.
+ * Mag dit apparaat nu leeggemaakt worden, of niet?
  *
- * Alleen als de wachtrij leeg is. Een kassa die zich wist terwijl er nog een
- * bon in de wachtrij staat, gooit omzet weg -- en dat is precies wat deze hele
- * opzet in twee stappen moet voorkomen.
- *
- * Wat blijft staan: het kenmerk van dit apparaat. Zo komt hetzelfde apparaat
- * na een nieuwe code niet als tweede in de lijst.
+ * Apart gezet en zonder database eromheen, zodat de zelftest erbij kan. Dit is
+ * de rem die voorkomt dat er omzet verdwijnt, en een rem die je niet kunt
+ * testen is geen rem.
  */
-export async function apparaatWissen(): Promise<{ ok: boolean; reden?: string }> {
-  const { klaar, wachtrij } = await intrekkingStand()
-  if (!klaar) {
-    return {
-      ok: false,
-      reden: `Er wachten nog ${wachtrij} wijziging(en) op verzending. Die gaan ` +
-             'eerst; daarna wist de kassa zich vanzelf.',
+export function ontkoppelBezwaar(wachtrij: number, forceren = false): string | null {
+  if (wachtrij === 0) return null
+  if (forceren) return null
+  return `Er ${wachtrij === 1 ? 'wacht nog 1 wijziging' : `wachten nog ${wachtrij} wijzigingen`} ` +
+         'op verzending. Daar kan omzet in zitten die nergens anders staat, dus die ' +
+         'gaat eerst de deur uit.'
+}
+
+export interface WisOpties {
+  /**
+   * Terugmelden aan het kantoor dat dit apparaat zich gewist heeft.
+   *
+   * Alleen bij een intrekking. Bij ontkoppelen aan de balie niet: dan is er
+   * geen intrekking om af te melden, en zou het kantoor een apparaat als
+   * "afgemeld" zien terwijl het er nooit uit gezet is.
+   */
+  melden?: boolean
+  /**
+   * Doorzetten terwijl er nog een wachtrij is, en die weggooien.
+   *
+   * Alleen voor het geval dat een kassa de server niet meer kan bereiken en er
+   * toch iets moet gebeuren. Wat erin staat is dan echt weg -- vandaar dat het
+   * scherm er een aparte bevestiging voor vraagt en het hier in het logboek
+   * komt.
+   */
+  forceren?: boolean
+}
+
+/**
+ * Dit apparaat leegmaken.
+ *
+ * Wat blijft staan: het kenmerk van dit apparaat (apparaatSleutel). Zo herkent
+ * de server hem na een nieuwe code als hetzelfde apparaat, en komt hij niet
+ * als tweede in de lijst te staan -- en dat is precies wat de database
+ * tegenhoudt, dus zonder dat zou hetzelfde apparaat zich niet opnieuw kunnen
+ * koppelen aan dezelfde kassa.
+ */
+export async function wisApparaat(opties: WisOpties = {}): Promise<{ ok: boolean; reden?: string }> {
+  const { wachtrij } = await intrekkingStand()
+  const bezwaar = ontkoppelBezwaar(wachtrij, opties.forceren)
+  if (bezwaar) return { ok: false, reden: bezwaar }
+
+  if (opties.melden) {
+    const apparaat = await huidigApparaat()
+    if (apparaat && !apparaat.wipedAt) {
+      /*
+       * Eerst terugmelden, dan wissen. Zou het andersom gaan, dan weet het
+       * kantoor niet of het account weg mag -- en dan blijft er een inlog
+       * bestaan die niemand meer gebruikt.
+       */
+      const rij: PosDevice = { ...apparaat, wipedAt: Date.now(), updatedAt: Date.now() }
+      await db.devices.put(rij)
+      await enqueue('devices', 'put', rij.id, rij)
+      await useSync.getState().sync({ silent: true })
     }
   }
 
-  const apparaat = await huidigApparaat()
-  if (apparaat && !apparaat.wipedAt) {
+  if (opties.forceren && wachtrij > 0) {
     /*
-     * Eerst terugmelden, dan wissen. Zou het andersom gaan, dan weet het
-     * kantoor niet of het account weg mag -- en dan blijft er een inlog
-     * bestaan die niemand meer gebruikt.
+     * Hardop, en op een plek waar het terug te vinden is. Dit is het enige
+     * moment in de hele kassa waarop er met opzet iets uit de administratie
+     * verdwijnt.
      */
-    const rij: PosDevice = { ...apparaat, wipedAt: Date.now(), updatedAt: Date.now() }
-    await db.devices.put(rij)
-    await enqueue('devices', 'put', rij.id, rij)
-    await useSync.getState().sync({ silent: true })
+    logLive('waarschuwing',
+      `${wachtrij} niet-verstuurde wijziging(en) weggegooid bij het ontkoppelen`)
+    await db.outbox.clear()
   }
 
   await Promise.all([
@@ -368,7 +420,13 @@ export async function apparaatWissen(): Promise<{ ok: boolean; reden?: string }>
   await db.meta.delete(REGISTER_META)
   await db.meta.delete(APPARAAT_KEY)
   await db.meta.delete(INLOG_KEY)
+  await useSync.getState().refreshPending()
 
-  logLive('actie', 'Dit apparaat is op afstand ingetrokken en heeft zich gewist')
+  logLive('actie', opties.melden
+    ? 'Dit apparaat is op afstand ingetrokken en heeft zich gewist'
+    : 'Deze kassa is aan de balie ontkoppeld')
   return { ok: true }
 }
+
+/** Zichzelf wissen na een intrekking van het kantoor. Zie OpSlot. */
+export const apparaatWissen = () => wisApparaat({ melden: true })
