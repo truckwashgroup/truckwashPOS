@@ -10,7 +10,8 @@
  * ------------------------------------------------------------------ */
 
 export type Role =
-  | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management' | 'developer'
+  | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
+  | 'developer' | 'employer' | 'administratie'
 
 export const ROLE_LABELS: Record<Role, string> = {
   employee: 'Werknemer',
@@ -19,10 +20,13 @@ export const ROLE_LABELS: Record<Role, string> = {
   customer: 'Klant',
   management: 'Management',
   developer: 'Ontwikkelaar',
+  employer: 'Werkgever',
+  administratie: 'Administratie',
 }
 
 export const ROLE_ORDER: Role[] =
-  ['employee', 'supervisor', 'technician', 'customer', 'management', 'developer']
+  ['employee', 'supervisor', 'technician', 'customer', 'employer',
+   'administratie', 'management', 'developer']
 
 export interface User {
   id: string
@@ -80,13 +84,44 @@ export interface User {
   allLocations?: boolean
 
   /**
+   * Dit account is aangemaakt met een tijdelijk wachtwoord dat per mail is
+   * verstuurd. Zolang dit aanstaat komt diegene niet verder dan het scherm
+   * waar hij een eigen wachtwoord kiest.
+   *
+   * Een wachtwoord dat per mail is verstuurd staat in het postvak van de
+   * ontvanger, in dat van de afzender, en op elke server ertussenin.
+   */
+  mustChangePassword?: boolean
+
+  /**
+   * Welke rondleidingen deze persoon heeft gezien, als 'rol@versie'.
+   *
+   * Op het profiel en niet op het apparaat: anders begint hij op elke
+   * telefoon opnieuw. Het versienummer erin is de knop om hem bij iedereen
+   * met die rol nog eens te laten zien als er wezenlijk iets verandert.
+   */
+  seenTours?: string[]
+
+  /**
+   * Uitgeschreven: inlog en dossier dicht, nergens meer te kiezen.
+   *
+   * Zijn uren, wasbeurten en getekende contracten blijven staan -- dat moet
+   * ook, want loonadministratie en contracten bewaar je zeven jaar. Wissen
+   * is iets anders en staat apart.
+   */
+  archivedAt?: number
+  archivedBy?: string
+  archiveReason?: string
+
+  /**
    * Dit dossier hoort bij een kassa, niet bij een mens.
    *
-   * Een gekoppelde kassa heeft een eigen inlog, en daar hangt een dossier aan
+   * Een gekoppelde kassa heeft zijn eigen inlog, en daar hangt een dossier aan
    * omdat de vestiging daarin staat -- en die bepaalt wat het apparaat mag
-   * zien. Zonder dit vlaggetje staat "Kassa KAS-UTR-1" tussen het personeel in
-   * het rooster, in de urenstaat en in de lijst waaruit je aan de kassa iemand
-   * kiest.
+   * zien. Zonder dit vlaggetje staat "Kassa KAS-UTR-1" tussen het personeel:
+   * in het rooster, in de urenstaat en in de lijst waaruit je aan de kassa
+   * iemand kiest. Overal waar mensen worden opgesomd, hoort dit eruit
+   * gefilterd te worden.
    */
   isDevice?: boolean
 }
@@ -106,9 +141,54 @@ export interface Location {
   /** Vestigingsmanager */
   managerId?: string
   managerName?: string
+  email?: string
   /** Aantal wasstraten op deze locatie */
   bays: number
   active: boolean
+  /** Waarom hij uit staat. Zonder reden is "niet actief" over een half jaar een raadsel. */
+  inactiveReason?: string
+  inactiveAt?: number
+  /** Interne notitie: sleutelkastje, oprit, wat de chauffeur moet weten. */
+  notes?: string
+  /**
+   * Wat de kaartendienst van het adres maakte.
+   *
+   * geoLabel staat los van het ingetikte adres, met opzet. Lopen die twee
+   * uiteen, dan hoor je dat te zien -- de app hoort je adres niet stilletjes
+   * te herschrijven naar wat een dienst ervan dacht.
+   */
+  lat?: number
+  lon?: number
+  geoLabel?: string
+  geoAt?: number
+  /** Per dag een venster, of null voor dicht. */
+  openingHours?: Openingstijden
+
+  /* --- wat hiervan op de website komt --------------------------------- *
+   *
+   * De vestigingen staan twee keer: hier, en op truckwash1group.nl in met de
+   * hand geschreven pagina's. Dat is een keer bijhouden te veel -- verhuist
+   * een vestiging, dan klopt de ene plek en de andere niet, en de plek die
+   * niet klopt is precies de plek waar de chauffeur kijkt.
+   *
+   * Deze velden zijn wat een openbare pagina nodig heeft en wat er intern
+   * niet al stond. Adres, telefoon en openingstijden staan hierboven en
+   * worden gewoon meegenomen.
+   */
+
+  /** Hoort deze vestiging op de website. Standaard nee. */
+  opWebsite?: boolean
+  /** Het pad op de site: "utrecht" wordt /locaties/utrecht/. */
+  websiteSlug?: string
+  /** De alinea bovenaan de pagina: waarom je hier komt. */
+  intro?: string
+  /** Hoe je er komt -- de afrit, de oprit, waar de ingang zit. */
+  bereikbaar?: string
+  /** Wat hier anders is dan elders. Mag leeg blijven. */
+  bijzonder?: string
+  /** Sleutels uit WEBSITE_DIENSTEN. Los van SERVICES: dat is wat de kassa boekt. */
+  diensten?: string[]
+
   updatedAt: number
 }
 
@@ -123,6 +203,13 @@ export interface Company {
   contractDiscountPct: number
   updatedAt: number
 }
+
+export type Weekdag = 'ma' | 'di' | 'wo' | 'do' | 'vr' | 'za' | 'zo'
+
+export interface Venster { van: string; tot: string }
+
+/** Ontbreekt een dag, dan is er niets ingevuld; staat hij op null, dan is het dicht. */
+export type Openingstijden = Partial<Record<Weekdag, Venster | null>>
 
 export type WashStatus = 'gepland' | 'wachtrij' | 'bezig' | 'gereed' | 'geannuleerd'
 
@@ -142,6 +229,14 @@ export interface WashJob {
   locationId: string
   companyId: string
   companyName: string
+  /**
+   * De werkgever waarop deze beurt is geschreven.
+   *
+   * Nodig om te bepalen wie hem mag zien: een chauffeur ziet de beurten van
+   * de werkgever waar hij aan gekoppeld is. Raakt die koppeling verbroken,
+   * dan verdwijnen ze uit zijn beeld -- ook al heeft hij ze zelf gebracht.
+   */
+  werkgeverId?: string
   plate: string
   service: ServiceKind
   status: WashStatus
@@ -204,11 +299,12 @@ export type Permission =
   /* rooster */
   | 'roster.viewOwn' | 'roster.viewTeam' | 'roster.edit' | 'roster.publish'
   /* uren */
-  | 'hours.own' | 'hours.viewTeam' | 'hours.approve'
+  | 'hours.own' | 'hours.viewTeam' | 'hours.approve' | 'hours.clock'
   /* voorraad */
   | 'inventory.view' | 'inventory.adjust' | 'inventory.manage'
   /* kosten */
   | 'expenses.submit' | 'expenses.viewTeam' | 'expenses.approve'
+  | 'expenses.read' | 'admin.desk'
   /* personeel */
   | 'staff.view' | 'staff.create' | 'staff.edit' | 'staff.permissions' | 'staff.pay'
   /* klanten */
@@ -228,12 +324,20 @@ export type Permission =
   | 'locations.view' | 'locations.manage' | 'locations.all'
   /* meldingen aan de ontwikkelaar */
   | 'dev.report' | 'dev.tickets' | 'dev.respond' | 'dev.logs'
+  | 'dev.plan' | 'dev.approve'
   /* overleg */
   | 'chat.use' | 'chat.manage' | 'chat.moderate'
   /* aanmeldingen */
   | 'signups.view' | 'signups.decide'
   /* postbus */
   | 'mail.read' | 'mail.send'
+  /* wijzigingen in het dossier */
+  | 'staff.request' | 'staff.approve'
+  /* agenda */
+  | 'agenda.view' | 'agenda.edit'
+  /* werkgevers */
+  | 'employer.view' | 'employer.manage' | 'employer.approve'
+  | 'employer.staff' | 'employer.rules'
   /* kassa */
   | 'pos.use' | 'pos.discount' | 'pos.refund' | 'pos.cash' | 'pos.safe'
   | 'pos.manage'
@@ -265,9 +369,10 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'roster.edit',       group: 'Rooster',    label: 'Rooster maken',        hint: 'Diensten inplannen, wijzigen en verwijderen.' },
   { key: 'roster.publish',    group: 'Rooster',    label: 'Rooster publiceren',   hint: 'Een concept definitief maken en iedereen berichten.' },
 
-  { key: 'hours.own',         group: 'Uren',       label: 'Eigen uren',           hint: 'In- en uitklokken, eigen registraties zien.' },
+  { key: 'hours.own',         group: 'Uren',       label: 'Eigen uren',           hint: 'Je eigen urenstaat inzien. Klokken gebeurt aan de kassa.' },
   { key: 'hours.viewTeam',    group: 'Uren',       label: 'Uren van het team',    hint: 'Zien hoeveel het team gewerkt heeft.' },
   { key: 'hours.approve',     group: 'Uren',       label: 'Uren goedkeuren',      hint: 'Registraties accorderen voor de verloning.' },
+  { key: 'hours.clock',       group: 'Uren',       label: 'Uren wegschrijven',    hint: 'Voor het kassa-account: in- en uitklokken namens wie zich meldt. Hoort niet bij een persoon.' },
 
   { key: 'inventory.view',    group: 'Voorraad',   label: 'Voorraad zien',        hint: 'Standen en verbruik bekijken.' },
   { key: 'inventory.adjust',  group: 'Voorraad',   label: 'Verbruik boeken',      hint: 'Materiaal afboeken en leveringen bijboeken.' },
@@ -276,6 +381,8 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'expenses.submit',   group: 'Kosten',     label: 'Bon indienen',         hint: 'Zelf kosten ter goedkeuring aanbieden.' },
   { key: 'expenses.viewTeam', group: 'Kosten',     label: 'Bonnen van het team',  hint: 'Zien wat het team heeft ingediend.' },
   { key: 'expenses.approve',  group: 'Kosten',     label: 'Bonnen goedkeuren',    hint: 'Kosten accorderen of afkeuren.', sensitive: true },
+  { key: 'expenses.read',     group: 'Kosten',     label: 'Factuur laten lezen',  hint: 'De bijlage door de AI laten uitlezen: bedragen, regels en betaalgegevens.' },
+  { key: 'admin.desk',        group: 'Kosten',     label: 'Administratie',        hint: 'Het administratiedashboard: alles wat op een beslissing wacht bij elkaar.', sensitive: true },
 
   { key: 'staff.view',        group: 'Personeel',  label: 'Personeel zien',       hint: 'De medewerkerslijst en dossiers bekijken.' },
   { key: 'staff.create',      group: 'Personeel',  label: 'Medewerker toevoegen', hint: 'Nieuwe personeelsdossiers aanmaken.' },
@@ -316,6 +423,8 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'dev.tickets',       group: 'Ontwikkeling', label: 'Alle meldingen zien', hint: 'Het volledige ticketoverzicht van iedereen.', sensitive: true },
   { key: 'dev.respond',       group: 'Ontwikkeling', label: 'Reageren en afhandelen', hint: 'Antwoorden op meldingen en de status bijwerken.', sensitive: true },
   { key: 'dev.logs',          group: 'Ontwikkeling', label: 'Logboek zien',       hint: 'Foutmeldingen en gebeurtenissen uit de app.', sensitive: true },
+  { key: 'dev.plan',          group: 'Ontwikkeling', label: 'Plannen maken',      hint: 'Uit een melding een plan met stappen destilleren.', sensitive: true },
+  { key: 'dev.approve',       group: 'Ontwikkeling', label: 'Plannen goedkeuren', hint: 'Bepalen welke stappen er gebouwd worden. Dit is de knop die telt.', sensitive: true },
 
   { key: 'chat.use',          group: 'Overleg',    label: 'Meedoen aan het overleg', hint: 'Kanalen lezen en berichten plaatsen.' },
   { key: 'chat.manage',       group: 'Overleg',    label: 'Kanalen beheren',      hint: 'Kanalen aanmaken, hernoemen en archiveren.' },
@@ -323,6 +432,18 @@ export const PERMISSIONS: PermissionMeta[] = [
 
   { key: 'signups.view',      group: 'Aanmeldingen', label: 'Aanmeldingen zien',  hint: 'Zien wie zich via de app heeft aangemeld.' },
   { key: 'signups.decide',    group: 'Aanmeldingen', label: 'Aanmelding afhandelen', hint: 'Iemand toelaten als medewerker of klant, of afwijzen.', sensitive: true },
+
+  { key: 'staff.request',     group: 'Personeel',  label: 'Wijziging aanvragen',  hint: 'Een verandering in een dossier voorstellen; het management beslist.' },
+  { key: 'staff.approve',     group: 'Personeel',  label: 'Wijziging goedkeuren', hint: 'Voorgestelde wijzigingen doorvoeren of afwijzen.', sensitive: true },
+
+  { key: 'employer.view',     group: 'Werkgevers', label: 'Werkgevers zien',      hint: 'De aangesloten werkgevers en hun wagens.' },
+  { key: 'employer.manage',   group: 'Werkgevers', label: 'Werkgevers beheren',   hint: 'Aanmaken, gegevens wijzigen en blokkeren.', sensitive: true },
+  { key: 'employer.approve',  group: 'Werkgevers', label: 'Aanvraag goedkeuren',  hint: 'Een aangemelde werkgever toelaten of afwijzen.', sensitive: true },
+  { key: 'employer.staff',    group: 'Werkgevers', label: 'Werknemers koppelen',  hint: 'Chauffeurs uitnodigen en weer loskoppelen.' },
+  { key: 'employer.rules',    group: 'Werkgevers', label: 'Afspraken vastleggen', hint: 'Wat er per wagen wel en niet afgenomen mag worden.', sensitive: true },
+
+  { key: 'agenda.view',       group: 'Agenda',     label: 'Agenda zien',          hint: 'Afspraken, verjaardagen en wat er aankomt.' },
+  { key: 'agenda.edit',       group: 'Agenda',     label: 'Agenda beheren',       hint: 'Afspraken toevoegen en wijzigen.' },
 
   { key: 'mail.read',         group: 'Postbus',    label: 'Post lezen',           hint: 'Binnengekomen e-mail en wat er is verstuurd.', sensitive: true },
   { key: 'mail.send',         group: 'Postbus',    label: 'Post versturen',       hint: 'Zelf een mail opstellen naar een adres naar keuze.', sensitive: true },

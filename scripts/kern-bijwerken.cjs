@@ -44,10 +44,19 @@ const LETTERLIJK = [
 /**
  * Uit het domeinmodel van het dashboard nemen we alleen over wat de kassa ook
  * echt nodig heeft. Wasbeurten ja, cursussen nee.
+ *
+ * Let op waar een type zelf op leunt. Deze lijst is met de hand bijgehouden,
+ * dus als er in het dashboard een veld bij komt dat naar een type verwijst dat
+ * hier niet staat, valt de bouw om met "Cannot find name". Dat gebeurde bij
+ * Location.openingHours: het veld kwam mee, de drie types eronder niet.
+ * Vervelend maar eerlijk -- het valt hardop om en niet stil.
  */
 const TYPES = [
   'Role', 'ROLE_LABELS', 'ROLE_ORDER', 'User',
   'LocationKind', 'Location', 'Company',
+  // Waar Location.openingHours op leunt. De kassa gebruikt ze nergens zelf,
+  // maar zonder deze drie is Location niet te compileren.
+  'Weekdag', 'Venster', 'Openingstijden',
   'WashStatus', 'ServiceKind', 'SERVICES', 'WashJob',
   'InventoryItem', 'StockMovement', 'TimeEntry',
   'Permission', 'PermissionMeta', 'PERMISSIONS',
@@ -102,6 +111,32 @@ function knip(bron, naam) {
     if (/^export\b/.test(r) || /^\/\* -{10}/.test(r)) break
     eind++
   }
+
+  /*
+   * Commentaar aan het eind hoort bij de VOLGENDE declaratie.
+   *
+   * De lus hierboven stopt pas bij het volgende `export`, dus alles wat
+   * daartussen staat komt mee -- ook de uitleg die boven dat volgende type
+   * hoort. Dat gaf twee kwalen tegelijk. Wordt het volgende type ook
+   * overgenomen, dan staat zijn uitleg er twee keer (een keer als staart van
+   * de vorige, een keer als kop van zichzelf). Wordt het NIET overgenomen,
+   * dan blijft zijn uitleg als weeskind achter boven het type dat er
+   * toevallig achter kwam -- zo stond "Een foto bij een vestiging" ineens
+   * boven WashStatus.
+   *
+   * Dus: lege regels en een commentaarblok aan de staart eraf. De sluitende
+   * `}` of de laatste regel code is het einde van deze declaratie.
+   */
+  let laatste = eind - 1
+  while (laatste > begin) {
+    const r = regels[laatste].trim()
+    const isRuisAanHetEind =
+      r === '' || r.startsWith('/*') || r.startsWith('*') ||
+      r.startsWith('//') || r.endsWith('*/')
+    if (!isRuisAanHetEind) break
+    laatste--
+  }
+  eind = laatste + 1
 
   return regels.slice(kop, eind).join('\n').trimEnd()
 }

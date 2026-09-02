@@ -19,6 +19,7 @@ const EMPLOYEE: Permission[] = [
   'expenses.submit',
   'learning.take',
   'locations.view',
+  'agenda.view',
   // Iedereen op de vloer moet een storing kunnen melden; dat is precies wie
   // hem als eerste ziet.
   'assets.view', 'faults.report',
@@ -37,6 +38,7 @@ const EMPLOYEE: Permission[] = [
 const TECHNICIAN: Permission[] = [
   'dev.report',
   'chat.use',
+  'agenda.view', 'agenda.edit',
   'roster.viewOwn',
   'hours.own',
   'expenses.submit',
@@ -69,16 +71,68 @@ const SUPERVISOR: Permission[] = [
   'inventory.manage',
   'expenses.viewTeam',
   'staff.view',
+  'staff.request',
   'customers.view',
   'notify.send', 'notify.broadcast',
   'learning.assign',
   'chat.manage',
+  'agenda.edit',
   'pos.discount', 'pos.refund', 'pos.cash',
+]
+
+/**
+ * Een werkgever ziet zijn eigen bedrijf en verder niets van Truckwash1.
+ * Geen rooster, geen voorraad, geen collega's -- alleen zijn chauffeurs, hun
+ * wasbeurten en de afspraken die daarover gemaakt zijn.
+ */
+const EMPLOYER: Permission[] = [
+  'employer.view', 'employer.staff', 'employer.rules',
+  'jobs.view',
+  'chat.use',
+  'dev.report',
 ]
 
 const CUSTOMER: Permission[] = [
   // Een klant ziet alleen zijn eigen omgeving; die schermen vragen geen
   // losse rechten, de database schermt de gegevens al af.
+]
+
+/**
+ * De administratie.
+ *
+ * Alles wat op een beslissing wacht komt bij deze rol samen: kostenposten,
+ * urenwijzigingen, aanpassingen in een dossier en aanmeldingen. De rode
+ * draad is niet "geld" maar "iemand moet hier ja of nee zeggen".
+ *
+ * Wat er bewust níét bij zit: het rooster maken, de planning, de voorraad en
+ * de techniek. Dat is uitvoeren, en wie uitvoert hoort niet ook zijn eigen
+ * werk goed te keuren.
+ *
+ * Wel finance.view, want een kostenpost beoordelen zonder te zien wat er
+ * verder die maand is langsgekomen is stempelen, geen beoordelen.
+ */
+const ADMINISTRATIE: Permission[] = [
+  'admin.desk',
+
+  'expenses.viewTeam', 'expenses.approve', 'expenses.read', 'expenses.submit',
+  'finance.view', 'finance.export',
+
+  'hours.own', 'hours.viewTeam', 'hours.approve',
+  'roster.viewOwn', 'roster.viewTeam',
+
+  'staff.view', 'staff.edit', 'staff.pay',
+  'signups.view', 'signups.decide',
+
+  'customers.view', 'customers.manage',
+  'employer.view',
+
+  'locations.view', 'locations.all',
+  'mail.read', 'mail.send',
+  'agenda.view', 'agenda.edit',
+  'notify.send',
+  'chat.use',
+  'learning.take',
+  'dev.report',
 ]
 
 const MANAGEMENT: Permission[] = PERMISSIONS.map((p) => p.key)
@@ -88,7 +142,9 @@ export const ROLE_DEFAULTS: Record<Role, Permission[]> = {
   supervisor: SUPERVISOR,
   technician: TECHNICIAN,
   developer: DEVELOPER,
+  employer: EMPLOYER,
   customer: CUSTOMER,
+  administratie: ADMINISTRATIE,
   management: MANAGEMENT,
 }
 
