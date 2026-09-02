@@ -39,6 +39,7 @@ const MUZIEKMAP = path.join(WORTEL, 'schermafdrukken', 'proefmuziek')
 
 const ZAAD = `
 const MUZIEKMAP = ${JSON.stringify(MUZIEKMAP)}
+const VASTGELOPEN = VAST_VLAG
 
 new Promise((klaar) => {
   const verzoek = indexedDB.open('truckwash-kassa')
@@ -91,7 +92,8 @@ new Promise((klaar) => {
     }
 
     const t = db.transaction(
-      ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves', 'products'],
+      ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves', 'products',
+       'timeEntries', 'outbox'],
       'readwrite')
     for (const m of mensen) t.objectStore('users').put(m)
     t.objectStore('locations').put({
@@ -105,6 +107,42 @@ new Promise((klaar) => {
       lastSeq: 0, active: true, updatedAt: nu,
     })
     t.objectStore('meta').put({ key: 'registerId', value: 'reg_demo' })
+
+    /*
+     * Iemand aan het werk, en een wachtrij waarin zijn inklokking vastzit.
+     *
+     * Dit staat hier omdat het de afdruk is die de fout van gisteren laat zien:
+     * een urenregel die de server weigert op de rechten. Die verdween eerst
+     * stil na acht pogingen; nu blijft hij staan en komt er een melding.
+     * Zonder deze zaadgegevens is dat op geen enkele afdruk te zien.
+     */
+    if (VASTGELOPEN) {
+      t.objectStore('timeEntries').put({
+        id: 'uur_demo', userId: 'u_ali', userName: 'Ali Yildiz',
+        start: nu - 2 * 3600000, locationId: 'loc_demo', updatedAt: nu,
+      })
+      t.objectStore('outbox').put({
+        entity: 'timeEntries', op: 'put', recordId: 'uur_demo',
+        payload: { id: 'uur_demo' },
+        createdAt: nu - 95 * 60000,
+        tries: 0,
+        geweigerd: 14,
+        lastError:
+          'De database weigert dit voor "time_entries": new row violates ' +
+          'row-level security policy for table "time_entries". Dat gaat over ' +
+          'rechten, niet over dit record -- het blijft in de wachtrij staan.',
+      })
+      t.objectStore('outbox').put({
+        entity: 'saleLines', op: 'put', recordId: 'regel_demo',
+        payload: { id: 'regel_demo' },
+        createdAt: nu - 20 * 60000, tries: 0, geweigerd: 6,
+      })
+      // En iets dat gewoon nog niet geweest is: dat hoort géén melding te geven.
+      t.objectStore('outbox').put({
+        entity: 'sales', op: 'put', recordId: 'bon_demo',
+        payload: { id: 'bon_demo' }, createdAt: nu, tries: 0,
+      })
+    }
 
     // Artikelen, met en zonder foto, zodat beide standen op de afdruk staan.
     const artikelen = [
@@ -177,6 +215,11 @@ const AFDRUKKEN = [
   { naam: 'kassa-donker', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014' },
   { naam: 'kassa-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014' },
   { naam: 'klok', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Klok' },
+  // De melding die er niet was toen een inklokking verdween.
+  { naam: 'klok-vast', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true,
+    nummer: '014', tab: 'Klok', vast: true },
+  { naam: 'klok-vast-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true,
+    nummer: '014', tab: 'Klok', vast: true },
   { naam: 'kas', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kas' },
   { naam: 'kluis', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis' },
   { naam: 'kluis-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis' },
@@ -201,7 +244,7 @@ speler.meldSchemaAan()
 
 const wacht = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop }) {
+async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vast }) {
   const win = new BrowserWindow({
     width: breedte,
     height: hoogte,
@@ -234,7 +277,8 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop }) {
   if (zaad) {
     // De eerste keer laden heeft de database aangemaakt; nu kan het erin.
     await wacht(600)
-    const gelukt = await win.webContents.executeJavaScript(ZAAD, true)
+    const zaad = ZAAD.replace('VAST_VLAG', vast ? 'true' : 'false')
+    const gelukt = await win.webContents.executeJavaScript(zaad, true)
     if (!gelukt) console.log(`  (${naam}: nepgegevens klaarzetten lukte niet)`)
   }
 

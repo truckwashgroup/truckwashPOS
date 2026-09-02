@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Clock, CloudOff, Download, ListMusic, Lock, LogOut, Moon, Music, Receipt,
-  RefreshCw, Settings, ShoppingCart, Sun, Wallet,
+  AlertTriangle, Clock, CloudOff, Download, ListMusic, Lock, LogOut, Moon,
+  Music, Receipt, RefreshCw, Settings, ShoppingCart, Sun, Wallet,
 } from 'lucide-react'
 import logo from './assets/kassa-icoon.png'
 import Toasts from './components/Toasts'
@@ -25,6 +25,7 @@ import { huidigeRegister } from './lib/kassa'
 import { apparaatGezien, huidigApparaat } from './lib/koppelen'
 import { can } from './lib/permissions'
 import { startSyncEngine, useSync } from './lib/sync'
+import { vastKort } from './lib/wachtrij'
 import { useUpdates } from './lib/updates'
 import { startAfmeldKlok, useAuth } from './store/useAuth'
 import { useMandje } from './store/useMandje'
@@ -222,7 +223,7 @@ function Balk({
   onAfmelden: () => void
 }) {
   const { operator } = useAuth()
-  const { online, syncing, pending, lastError, sync } = useSync()
+  const { online, syncing, pending, lastError, vast, sync } = useSync()
   const { actief, thema, setThema } = useTheme()
   const updates = useUpdates()
   const [klok, setKlok] = useState(Date.now())
@@ -284,6 +285,26 @@ function Balk({
         <Pil soort="merk">
           <Download size={13} /> versie {updates.newVersion} klaar
         </Pil>
+      )}
+
+      {/*
+        Vastgelopen werk krijgt een eigen pil, en die is rood.
+
+        Waarom niet in de bestaande pil erbij: "12 wacht" en "1 klokregel vast"
+        zijn twee verschillende dingen. Het eerste gaat over en het tweede niet
+        -- en juist dat verschil moet te zien zijn zonder erop te klikken. Hij
+        brengt je naar de Klok, want daar staat het hele verhaal.
+      */}
+      {vastKort(vast) && (
+        <button
+          type="button"
+          className="pil fout"
+          onClick={() => onBlad('klok')}
+          title="Klik voor wat er vastzit en wat eraan te doen valt"
+          style={{ cursor: 'pointer' }}
+        >
+          <AlertTriangle size={13} /> {vastKort(vast)}
+        </button>
       )}
 
       <button

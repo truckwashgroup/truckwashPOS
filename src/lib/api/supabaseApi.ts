@@ -180,8 +180,132 @@ function fail(context: string, error: { message: string } | null): never {
 }
 
 /** Geen rechten op een tabel is normaal, geen storing. */
-function magNiet(error: { code?: string } | null): boolean {
+export function magNiet(error: { code?: string } | null): boolean {
   return error?.code === 'PGRST301' || error?.code === '42501'
+}
+
+/* ------------------------------------------------------------------ *
+ *  Vier soorten weigering die niets over het record zeggen
+ *
+ *  Dit stond in de kassa niet, en in de wasstraat-app wel. Het verschil kostte
+ *  een inklokking.
+ *
+ *  Wat er gebeurde: het apparaataccount miste een recht, de database weigerde
+ *  de urenregel, en pushPerStuk deed wat hij bij elke fout doet -- acht keer
+ *  proberen en dan weggooien. Aan de balie was niets te zien: de medewerker had
+ *  "is ingeklokt" gezien en stond onder "Nu aan het werk". Dat de regel de
+ *  server nooit gehaald had, bleek pas bij de urenstaat.
+ *
+ *  De fout was niet dat er geweigerd werd -- dat hoort een keer te gebeuren.
+ *  De fout was dat de kassa die weigering las als "dit record is stuk". Een
+ *  weigering op rechten, een ontbrekende tabel, een ontbrekende kolom of een
+ *  verlopen sessie zeggen alle vier niets over dít record: onder dezelfde
+ *  omstandigheden wordt álles geweigerd. Acht keer opnieuw proberen maakt dat
+ *  niet beter, en na de achtste keer is er werk weg om een reden die niets met
+ *  dat werk te maken had.
+ *
+ *  Deze vier krijgen daarom een eigen soort, en sync.ts gooit ze nooit weg.
+ * ------------------------------------------------------------------ */
+
+/** De tabel bestaat nog niet: het schema loopt achter op de app. */
+export function tabelOntbreekt(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  // 42P01 komt van Postgres, PGRST205/PGRST106 van de laag ervoor.
+  if (['42P01', 'PGRST205', 'PGRST106'].includes(error.code ?? '')) return true
+  return /(relation|table).{0,40}(does not exist|not found)/i.test(error.message ?? '')
+}
+
+/** De kolom bestaat nog niet. Zelfde soort probleem als een tabel. */
+export function kolomOntbreekt(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  if (error.code === 'PGRST204') return true
+  return /could not find the .* column/i.test(error.message ?? '')
+}
+
+export class OntbrekendeTabel extends Error {
+  constructor(readonly tabel: string) {
+    super(
+      `De tabel "${tabel}" bestaat nog niet in de database. ` +
+      'Draai supabase/setup.sql opnieuw; de wijziging blijft zolang in de wachtrij staan.',
+    )
+  }
+}
+
+export class OntbrekendeKolom extends Error {
+  constructor(readonly tabel: string, boodschap?: string) {
+    super(
+      `De tabel "${tabel}" mist een kolom die de kassa meestuurt: ${boodschap ?? ''} `.trim() +
+      ' Draai supabase/setup.sql opnieuw; de wijziging blijft zolang in de wachtrij staan.',
+    )
+  }
+}
+
+/**
+ * Er is geen geldige sessie meer bij de server.
+ *
+ * Bij een kassa gebeurt dat vaker dan elders: het apparaat staat dagen aan,
+ * gaat een weekend uit, of hangt aan een lijn die er af en toe uit ligt. Zonder
+ * sessie gaat elk verzoek als onbekende bezoeker naar de database, en die
+ * weigert dan terecht alles -- met een melding over beveiligingsregels, die
+ * naar de verkeerde kant wijst.
+ */
+export class GeenSessie extends Error {
+  constructor() {
+    super(
+      'Deze kassa is niet meer ingelogd bij de server. Wat in de wachtrij ' +
+      'staat blijft staan tot dat weer lukt.',
+    )
+  }
+}
+
+/**
+ * De database weigert dit op zijn beveiligingsregels.
+ *
+ * Dit is de fout die de inklokking kostte. Hij gaat niet over dit record maar
+ * over rechten, en rechten worden niet beter van acht keer hetzelfde proberen.
+ */
+export class GeenRechten extends Error {
+  constructor(readonly tabel: string, boodschap: string) {
+    super(
+      `De database weigert dit voor "${tabel}": ${boodschap} ` +
+      'Dat gaat over rechten, niet over dit record -- het blijft in de ' +
+      'wachtrij staan.',
+    )
+  }
+}
+
+/**
+ * Is er een bruikbare sessie?
+ *
+ * getSession() vernieuwt zelf een verlopen toegangssleutel zolang de
+ * vernieuwsleutel nog geldig is, dus dit is tegelijk de plek waar dat gebeurt.
+ * Een opgeslagen sessie is namelijk niet hetzelfde als een geldige sessie: de
+ * toegangssleutel verloopt na een uur, en wat er dan nog ligt is papier.
+ */
+export async function heeftSessie(): Promise<boolean> {
+  if (!supabaseConfigured) return false
+  try {
+    const { data } = await supabase().auth.getSession()
+    const sessie = data.session
+    if (!sessie) return false
+
+    // Een halve minuut marge: de sleutel moet de rit naar de server nog halen.
+    const verlooptOver = (sessie.expires_at ?? 0) * 1000 - Date.now()
+    if (verlooptOver > 30_000) return true
+
+    const { data: vers } = await supabase().auth.refreshSession()
+    return !!vers.session
+  } catch {
+    return false
+  }
+}
+
+/** Zet een antwoord van de database om in de fout die erbij hoort. */
+function weiger(tabel: string, context: string, error: { code?: string; message: string }): never {
+  if (tabelOntbreekt(error)) throw new OntbrekendeTabel(tabel)
+  if (kolomOntbreekt(error)) throw new OntbrekendeKolom(tabel, error.message)
+  if (magNiet(error)) throw new GeenRechten(tabel, error.message)
+  fail(context, error)
 }
 
 export const supabaseApi: ApiAdapter = {
@@ -235,6 +359,16 @@ export const supabaseApi: ApiAdapter = {
   },
 
   async push(changes: PushChange[]) {
+    /*
+     * Eerst kijken of er een sessie is.
+     *
+     * Zonder deze regel komt een verlopen sessie terug als een weigering op de
+     * beveiligingsregels -- en dan zoekt iemand naar een rechtenprobleem dat er
+     * niet is. Bovendien vernieuwt heeftSessie() de sleutel als dat nog kan,
+     * dus in de meeste gevallen lost dit het meteen op.
+     */
+    if (!(await heeftSessie())) throw new GeenSessie()
+
     // Per tabel bundelen scheelt netwerkrondes.
     const byTable = new Map<EntityName, PushChange[]>()
     for (const c of changes) {
@@ -249,7 +383,7 @@ export const supabaseApi: ApiAdapter = {
       const deletes = list.filter((c) => c.op === 'delete').map((c) => c.recordId)
       if (deletes.length) {
         const { error } = await supabase().from(table).delete().in('id', deletes)
-        if (error) fail(`verwijderen in ${table}`, error)
+        if (error) weiger(table, `verwijderen in ${table}`, error)
       }
 
       const upserts = list
@@ -257,7 +391,7 @@ export const supabaseApi: ApiAdapter = {
         .map((c) => toRow(entity, c.payload as Record<string, unknown>))
       if (upserts.length) {
         const { error } = await supabase().from(table).upsert(upserts, { onConflict: 'id' })
-        if (error) fail(`opslaan in ${table}`, error)
+        if (error) weiger(table, `opslaan in ${table}`, error)
       }
     }
   },

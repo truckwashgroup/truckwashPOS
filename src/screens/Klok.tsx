@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AlertTriangle, Clock, LogIn, LogOut } from 'lucide-react'
 import Toetsenblok from '../components/Toetsenblok'
+import VastInDeWachtrij from '../components/VastInDeWachtrij'
 import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld } from '../components/ui'
 import { duration, time } from '../lib/format'
 import { herkenBadge, herkenOpNummer, normaliseerNummer, nummerProbleem } from '../lib/code'
@@ -109,6 +110,14 @@ export default function Klok() {
 
   return (
     <div className="paneel">
+      {/*
+        Bovenaan, boven "Nu aan het werk", en dat is de bedoeling: dit is het
+        scherm waar iemand naar kijkt als hij zich afvraagt of zijn uren erin
+        staan. Zag hij hier niets, dan is het antwoord op die vraag pas aan het
+        eind van de maand te geven.
+      */}
+      <VastInDeWachtrij />
+
       <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 380px)' }}>
         <div className="kaart">
           <h3>Nu aan het werk</h3>

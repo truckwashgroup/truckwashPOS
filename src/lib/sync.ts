@@ -1,7 +1,11 @@
 import { create } from 'zustand'
 import { api, type PushChange } from './api'
+import {
+  GeenRechten, GeenSessie, OntbrekendeKolom, OntbrekendeTabel,
+} from './api/supabaseApi'
 import { db, getMeta, setMeta } from './db'
 import { logLive } from './trail'
+import { vatWachtrij, type VastStand } from './wachtrij'
 import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
 
 /* ------------------------------------------------------------------ *
@@ -40,6 +44,11 @@ export function setSyncEnabled(v: boolean) {
 }
 
 interface SyncStore extends SyncState {
+  /**
+   * Wat er vastzit omdat de server het weigert om iets wat los van het record
+   * staat. Dit is wat er aan de balie in beeld komt; zie wachtrij.ts.
+   */
+  vast: VastStand
   setOnline: (v: boolean) => void
   refreshPending: () => Promise<void>
   sync: (opts?: { silent?: boolean }) => Promise<void>
@@ -51,11 +60,21 @@ export const useSync = create<SyncStore>((set, get) => ({
   pending: 0,
   lastSyncAt: null,
   lastError: null,
+  vast: { totaal: 0, vast: 0, uren: 0, sindsMs: null, reden: null, entiteiten: [] },
 
   setOnline: (v) => set({ online: v }),
 
+  /*
+   * Het aantal wachtende wijzigingen, en wat daarvan vastzit.
+   *
+   * Die tweede is nieuw en de reden dat deze functie nu de hele wachtrij
+   * uitleest in plaats van hem te tellen. Dat kost een fractie meer -- de
+   * wachtrij van een kassa is kort -- en het levert het enige op waaraan aan
+   * de balie te zien is dat er uren blijven hangen.
+   */
   refreshPending: async () => {
-    set({ pending: await db.outbox.count() })
+    const rijen = await db.outbox.toArray()
+    set({ pending: rijen.length, vast: vatWachtrij(rijen) })
   },
 
   sync: async (opts) => {
@@ -189,8 +208,35 @@ async function pushOutbox(): Promise<number> {
   }
 }
 
+/**
+ * Zegt deze fout iets over dít record, of over de omstandigheden?
+ *
+ * Dat onderscheid is de kern van dit bestand, en het ontbreken ervan kostte een
+ * inklokking. Het apparaataccount miste een recht, de database weigerde de
+ * urenregel, en deze functie deed wat hij bij elke fout deed: acht keer
+ * proberen en dan weggooien. Aan de balie was niets te zien -- de medewerker
+ * had "is ingeklokt" gelezen en stond onder "Nu aan het werk".
+ *
+ * Deze vier weigeringen zeggen niets over het record. Onder dezelfde
+ * omstandigheden wordt álles geweigerd: er mist een recht, er mist een tabel,
+ * er mist een kolom, of er is geen sessie. Nog eens proberen maakt dat niet
+ * beter, en na de achtste keer is er werk weg om een reden die er los van
+ * staat.
+ *
+ * Ze blijven daarom staan. Voor altijd, als het moet -- tot de rechten kloppen
+ * of het schema bij is. Een wachtrij die volloopt is een probleem dat je ziet;
+ * omzet en uren die stil verdwijnen is een probleem dat je pas maanden later
+ * ziet, en dan niet meer kunt herstellen.
+ */
+function gaatNietOverDitRecord(e: unknown): boolean {
+  return e instanceof GeenRechten
+    || e instanceof GeenSessie
+    || e instanceof OntbrekendeTabel
+    || e instanceof OntbrekendeKolom
+}
+
 /** Duwt elk record apart. Geeft de eerste fout terug, of null als alles lukte. */
-async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
+export async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
   let eerste: Error | null = null
 
   for (const r of batch) {
@@ -202,6 +248,26 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       eerste ??= e instanceof Error ? e : new Error(msg)
+
+      if (gaatNietOverDitRecord(e)) {
+        /*
+         * `tries` blijft staan, en dat is niet hetzelfde als "niets bijhouden".
+         *
+         * De wasstraat-app telt hier wel door en gooit dan alsnog niet weg,
+         * omdat er een continue tussen staat. Dat werkt, maar het leunt op de
+         * volgorde van twee stukjes code: haalt iemand die continue ooit weg,
+         * dan staat de teller al op veertig en is het record bij de eerstvolgende
+         * gewone fout meteen weg. Bij uren en omzet is dat een te dun slot.
+         *
+         * Dus houden we het apart bij. `tries` betekent hier één ding:
+         * pogingen die tot weggooien leiden.
+         */
+        await db.outbox.update(r.id!, {
+          geweigerd: (r.geweigerd ?? 0) + 1,
+          lastError: msg,
+        })
+        continue
+      }
 
       const tries = r.tries + 1
       if (tries >= MAX_TRIES) {

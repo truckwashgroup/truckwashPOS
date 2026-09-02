@@ -131,7 +131,25 @@ input, select, textarea { font: inherit; }
 
 .balk .rek { flex: 1; }
 
-.tabs { display: flex; gap: 6px; }
+/*
+ * De tabbladen mogen krimpen en schuiven; de pillen rechts niet.
+ *
+ * Met de pil voor vastgelopen werk erbij liep de balk op 1366 pixels over, en
+ * dan viel de naam van wie er achter de kassa staat er rechts vanaf. Dat is de
+ * verkeerde kant om te laten vallen: die naam komt op de bon. De tabbladen zijn
+ * het brede deel en kunnen schuiven.
+ */
+.tabs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: 0 0 auto; }
+.balk > .pil, .balk > button.pil { flex: 0 0 auto; }
 
 .tab {
   display: inline-flex;
@@ -1444,4 +1462,59 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
 @media (max-width: 720px) {
   .tegelfoto, .tegelfoto-leeg { height: 70px; }
   .tegels.fotos .tegel { min-height: 150px; }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Er zit iets vast in de wachtrij
+ *
+ *  Blijft staan tot het over is, en schuift niet weg zoals een melding
+ *  rechtsonder. Bij uren is dat het verschil: die melding moet er nog staan als
+ *  degene die het aangaat een half uur later langsloopt.
+ * ------------------------------------------------------------------ */
+
+/*
+ * De kassacode blijft op één regel.
+ *
+ * Met de pil voor vastgelopen werk erbij werd de balk vol, en toen viel
+ * "KAS-UTR-1" in drie regels uiteen -- de code van de kassa, het eerste wat
+ * iemand leest om te weten waar hij staat.
+ */
+.merk span { white-space: nowrap; }
+
+.vastdoos {
+  border: 1px solid var(--line-danger);
+  background: var(--tint-danger);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.vastdoos-kop {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+  font-size: 15.5px;
+  color: var(--text-danger);
+}
+
+.vastdoos p { margin: 10px 0 0; line-height: 1.6; color: var(--text-2); }
+
+.vastdoos-reden {
+  font-size: 12.5px;
+  color: var(--text-3);
+  /* De letterlijke tekst van de server. Voor wie het doorgeeft aan het
+     kantoor -- die heeft er meer aan dan aan onze samenvatting. */
+  word-break: break-word;
+}
+
+.vastdoos-voet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-3);
 }

@@ -453,6 +453,47 @@ export type EntityName =
   | 'cashSessions' | 'cashMoves' | 'subscriptions' | 'subscriptionUses'
   | 'pins' | 'safes' | 'safeMoves' | 'devices'
 
+/**
+ * Hoe een tabel heet als je hem aan de balie moet noemen.
+ *
+ * Nodig omdat er nu een melding is die zegt wat er vastzit. "3x saleLines" is
+ * geen melding maar een blik in de code; "3 bonregels" is iets waar iemand mee
+ * naar het kantoor kan.
+ *
+ * Twee vormen, en dat is geen overdaad. Op de eerste afdruk stond "1x
+ * bonregels", en dat is precies het soort scheve zin waardoor iemand een
+ * waarschuwing niet meer serieus neemt.
+ */
+export const ENTITEIT_LABELS: Record<EntityName, { een: string; meer: string }> = {
+  locations: { een: 'vestiging', meer: 'vestigingen' },
+  users: { een: 'medewerker', meer: 'medewerkers' },
+  companies: { een: 'klant', meer: 'klanten' },
+  washJobs: { een: 'wasopdracht', meer: 'wasopdrachten' },
+  inventory: { een: 'voorraadregel', meer: 'voorraadregels' },
+  timeEntries: { een: 'klokregel', meer: 'klokregels' },
+  stockMovements: { een: 'voorraadmutatie', meer: 'voorraadmutaties' },
+  registers: { een: 'kassa-instelling', meer: 'kassa-instellingen' },
+  products: { een: 'artikel', meer: 'artikelen' },
+  sales: { een: 'bon', meer: 'bonnen' },
+  saleLines: { een: 'bonregel', meer: 'bonregels' },
+  payments: { een: 'betaling', meer: 'betalingen' },
+  cashSessions: { een: 'kassadag', meer: 'kassadagen' },
+  cashMoves: { een: 'kasmutatie', meer: 'kasmutaties' },
+  subscriptions: { een: 'kaart', meer: 'kaarten' },
+  subscriptionUses: { een: 'afboeking', meer: 'afboekingen' },
+  pins: { een: 'code', meer: 'codes' },
+  safes: { een: 'kluis', meer: 'kluizen' },
+  safeMoves: { een: 'kluisboeking', meer: 'kluisboekingen' },
+  devices: { een: 'apparaat', meer: 'apparaten' },
+}
+
+/** "1 bonregel" of "3 bonregels". */
+export function entiteitAantal(entiteit: EntityName, aantal: number): string {
+  const label = ENTITEIT_LABELS[entiteit]
+  if (!label) return `${aantal}x ${entiteit}`
+  return `${aantal} ${aantal === 1 ? label.een : label.meer}`
+}
+
 export type SyncOp = 'put' | 'delete'
 
 export interface OutboxRecord {
@@ -462,7 +503,23 @@ export interface OutboxRecord {
   recordId: string
   payload: unknown
   createdAt: number
+  /**
+   * Pogingen die meetellen voor opgeven.
+   *
+   * Alleen fouten die iets over dít record zeggen komen hier terecht. Een
+   * weigering op rechten, een ontbrekende tabel of een verlopen sessie niet:
+   * die zeggen niets over dit record, en dan zou deze teller een record
+   * weggooien om een reden die er los van staat. Zie sync.ts.
+   */
   tries: number
+  /**
+   * Hoe vaak dit is geweigerd om iets wat er los van staat.
+   *
+   * Apart van `tries`, en met opzet: die teller leidt tot weggooien en deze
+   * nooit. Waarom hij dan bestaat -- hij is het enige waaraan aan de balie te
+   * zien is dat er iets vastzit, en hoe lang al.
+   */
+  geweigerd?: number
   lastError?: string
 }
 

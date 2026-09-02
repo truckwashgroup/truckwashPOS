@@ -450,6 +450,58 @@ Een paar keuzes die hieruit volgen:
   opent de kassa er een met €0 wisselgeld en zegt dat erbij — beter dan contant
   geld dat nergens bij hoort.
 
+### Wat er nooit stil mag verdwijnen
+
+De wachtrij probeert een wijziging acht keer en geeft hem daarna op. Dat is de
+juiste keuze voor een record dat echt stuk is — anders blijft één kapotte regel
+alles erachter tegenhouden.
+
+Maar vier weigeringen zeggen niets over het record:
+
+| Weigering | Wat het betekent |
+|---|---|
+| **rechten** | de database weigert het op de beveiligingsregels |
+| **geen sessie** | de kassa is niet meer ingelogd bij de server |
+| **tabel bestaat niet** | het schema loopt achter op de app |
+| **kolom bestaat niet** | idem |
+
+Onder die omstandigheden wordt *alles* geweigerd. Nog eens proberen maakt dat
+niet beter, en na de achtste keer is er werk weg om een reden die er los van
+staat. Die vier verbruiken daarom geen pogingen en worden **nooit** weggegooid —
+ze blijven staan tot het klopt, en gaan dan alsnog mee.
+
+Dat is geen theorie: het ging één keer mis. Het apparaataccount miste een recht,
+de database weigerde een inklokking, en die verdween na acht rondes. Aan de balie
+was niets te zien — de medewerker had "is ingeklokt" gelezen en stond onder "Nu
+aan het werk". Dat de regel de server nooit gehaald had, bleek pas bij de
+urenstaat.
+
+De teller die de weigeringen bijhoudt (`geweigerd`) staat los van `tries`, en met
+opzet: die tweede leidt tot weggooien en de eerste nooit. Eén veld voor beide
+zou betekenen dat het slot op de volgorde van twee stukjes code leunt.
+
+### En het is aan de balie te zien
+
+Zodra er iets vastzit, staat er rechts in de balk een rode pil — *1 klokregel
+vast* — die naar het klokscherm brengt. Daar staat boven "Nu aan het werk" wat
+er vastzit, sinds wanneer, wat de server erover zegt, en wat er nu te doen valt.
+
+Uren worden bij naam genoemd en de rest niet. Dat is een keuze: een bon die
+vastzit is een probleem van de zaak, een inklokking die vastzit is het loon van
+degene die ernaar kijkt. Wie zijn uren kwijtraakt hoort dat vandaag te merken —
+dan weet hij nog hoe lang hij er stond. Aan het eind van de maand is het zijn
+woord tegen een lege urenstaat.
+
+In die melding staat expliciet dat er niets is weggegooid. Zonder die regel leest
+hij als "je uren zijn kwijt", en gaat iemand ze op een briefje bijhouden terwijl
+ze er nog zijn.
+
+Een wijziging die gewoon nog niet verstuurd is, geeft géén waarschuwing. Dat
+verschil is belangrijk: stond er een melding zodra de kassa een seconde offline
+is, dan leert iedereen hem wegkijken.
+
+---
+
 ## Een afgerekende bon staat vast
 
 Niet omdat de app het verbiedt, maar omdat de database het weigert. Bedragen,

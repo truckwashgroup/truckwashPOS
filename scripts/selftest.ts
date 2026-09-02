@@ -66,7 +66,10 @@ const kaarten = await import('../src/lib/kaarten')
 const kassa = await import('../src/lib/kassa')
 const kas = await import('../src/lib/kas')
 const { bonOpmaken, alsTekst, bonGegevens } = await import('../src/lib/bon')
-const { PUSH_ORDER } = await import('../src/lib/sync')
+const { PUSH_ORDER, pushPerStuk, useSync } = await import('../src/lib/sync')
+const wachtrijLib = await import('../src/lib/wachtrij')
+const foutsoorten = await import('../src/lib/api/supabaseApi')
+const { api: deApi } = await import('../src/lib/api')
 const munten = await import('../src/lib/munten')
 const kluis = await import('../src/lib/kluis')
 const koppelen = await import('../src/lib/koppelen')
@@ -1472,6 +1475,250 @@ check('de grootte leest als een grootte',
   beeld.bytesKort(512) === '512 B' &&
   beeld.bytesKort(47128) === '46 kB' &&
   beeld.bytesKort(3_500_000) === '3.3 MB')
+
+/* ================================================================== *
+ *  17. Een geweigerde urenregel verdwijnt niet
+ *
+ *  Dit is de afdeling die er niet was toen het misging. Een inklokking
+ *  verdween: het apparaataccount miste een recht, de database weigerde de
+ *  urenregel, en pushPerStuk deed wat hij bij elke fout deed -- acht keer
+ *  proberen en dan weggooien. Aan de balie was niets te zien; de medewerker had
+ *  "is ingeklokt" gelezen en stond onder "Nu aan het werk".
+ *
+ *  Wat hier gemeten wordt is precies dat: dat een weigering op rechten de regel
+ *  laat staan, dat hij dat blijft doen -- ook na meer rondes dan MAX_TRIES --
+ *  en dat het in beeld komt. En eronder de tegenproef: een fout die wel over
+ *  het record gaat, wordt nog steeds opgegeven.
+ * ================================================================== */
+
+console.log('\n17. Een geweigerde urenregel verdwijnt niet')
+
+const MAX_TRIES_HIER = 8
+
+/*
+ * De echte push onderscheppen. Dat kan omdat api een object is: de binding is
+ * const, de inhoud niet. Zo meten we het gedrag van pushPerStuk zelf en niet
+ * dat van een nagemaakte kopie ervan.
+ */
+const echtePush = deApi.push
+const zetPush = (fn: typeof deApi.push) => { (deApi as any).push = fn }
+
+// Schoon beginnen: eerdere afdelingen hebben de wachtrij gevuld.
+await db.outbox.clear()
+
+const klokker = (await db.users.get(wasser.id)) ?? wasser
+await klok.inklokken(klokker, register.locationId)
+
+const inDeRij = await db.outbox.where('entity').equals('timeEntries').toArray()
+check('inklokken zet een regel in de wachtrij', inDeRij.length === 1,
+  String(inDeRij.length))
+
+/* ---- de server weigert het op de rechten ---- */
+
+zetPush(async () => {
+  throw new foutsoorten.GeenRechten(
+    'time_entries', 'new row violates row-level security policy')
+})
+
+/*
+ * Ruim meer rondes dan er pogingen zijn. Was dit de oude code, dan was de
+ * regel na de achtste ronde weg -- en dat is precies wat er in het echt
+ * gebeurde.
+ */
+for (let ronde = 0; ronde < MAX_TRIES_HIER + 4; ronde++) {
+  await pushPerStuk(await db.outbox.toArray())
+}
+
+const naWeigeren = await db.outbox.where('entity').equals('timeEntries').toArray()
+check(`de urenregel staat er na ${MAX_TRIES_HIER + 4} weigeringen nog`,
+  naWeigeren.length === 1, `${naWeigeren.length} regels over`)
+check('en heeft geen enkele poging verbruikt',
+  naWeigeren[0]?.tries === 0, `tries = ${naWeigeren[0]?.tries}`)
+check('de weigeringen worden apart geteld',
+  naWeigeren[0]?.geweigerd === MAX_TRIES_HIER + 4,
+  `geweigerd = ${naWeigeren[0]?.geweigerd}`)
+check('en de reden staat erbij zoals de server hem gaf',
+  (naWeigeren[0]?.lastError ?? '').includes('row-level security'),
+  naWeigeren[0]?.lastError ?? '')
+
+/* ---- en de andere drie soorten net zo ---- */
+
+const soorten: [string, () => Error][] = [
+  ['een verlopen sessie', () => new foutsoorten.GeenSessie()],
+  ['een ontbrekende tabel', () => new foutsoorten.OntbrekendeTabel('time_entries')],
+  ['een ontbrekende kolom', () => new foutsoorten.OntbrekendeKolom('time_entries', 'x')],
+]
+
+for (const [naam, maakFout] of soorten) {
+  await db.outbox.clear()
+  await klok.uitklokken(klokker.id)
+  await klok.inklokken(klokker, register.locationId)
+
+  zetPush(async () => { throw maakFout() })
+  for (let ronde = 0; ronde < MAX_TRIES_HIER + 2; ronde++) {
+    await pushPerStuk(await db.outbox.toArray())
+  }
+
+  const over = await db.outbox.count()
+  check(`${naam} gooit ook niets weg`, over > 0, `${over} regels over`)
+  check(`en verbruikt ook bij ${naam} geen pogingen`,
+    (await db.outbox.toArray()).every((r) => r.tries === 0))
+}
+
+/* ---- de tegenproef: een echte fout op dit record ---- */
+
+await db.outbox.clear()
+await klok.uitklokken(klokker.id)
+await klok.inklokken(klokker, register.locationId)
+
+zetPush(async () => { throw new Error('opslaan in time_entries: waarde te lang') })
+for (let ronde = 0; ronde < MAX_TRIES_HIER; ronde++) {
+  await pushPerStuk(await db.outbox.toArray())
+}
+
+const naEchteFout = await db.outbox.count()
+check('een fout die wel over het record gaat wordt nog steeds opgegeven',
+  naEchteFout === 0, `${naEchteFout} regels over`)
+
+/* ---- en als de rechten kloppen, gaat hij alsnog mee ---- */
+
+/*
+ * Eerst uitklokken, dan de rij leeg, dan inklokken. Uitklokken zet namelijk
+ * zelf ook een regel in de wachtrij -- en dan meet je twee dingen terwijl je
+ * er één bedoelde.
+ */
+await klok.uitklokken(klokker.id)
+await db.outbox.clear()
+await klok.inklokken(klokker, register.locationId)
+
+zetPush(async () => { throw new foutsoorten.GeenRechten('time_entries', 'geweigerd') })
+await pushPerStuk(await db.outbox.toArray())
+check('vastgelopen, en dat is te zien', (await db.outbox.count()) > 0)
+
+// Het kantoor zet het recht goed.
+let verstuurd = 0
+zetPush(async () => { verstuurd++ })
+await pushPerStuk(await db.outbox.toArray())
+
+const naHerstel = await db.outbox.count()
+check('zodra het recht klopt gaat de regel alsnog de deur uit',
+  verstuurd === 1 && naHerstel === 0, `${verstuurd} verstuurd, ${naHerstel} over`)
+
+zetPush(echtePush)
+
+/* ================================================================== *
+ *  18. En het komt in beeld
+ *
+ *  De helft van de fout was dat er niets werd weggegooid maar ook niets
+ *  gezegd. Een regel die voor altijd in de wachtrij blijft staan is net zo
+ *  onzichtbaar als een regel die weg is -- en bij uren is onzichtbaar het
+ *  echte probleem. Wie zijn uren kwijtraakt hoort dat vandaag te weten en niet
+ *  aan het eind van de maand.
+ * ================================================================== */
+
+console.log('\n18. En het komt in beeld')
+
+const nuMeting = Date.now()
+
+check('een schone wachtrij meldt niets',
+  wachtrijLib.vatWachtrij([]).vast === 0 &&
+  wachtrijLib.vastKort(wachtrijLib.vatWachtrij([])) === null &&
+  wachtrijLib.vastVerhaal(wachtrijLib.vatWachtrij([])) === null)
+
+/*
+ * Een regel die gewoon nog niet geweest is, is niet vastgelopen. Dat verschil
+ * moet blijven staan: anders staat er een waarschuwing zodra de kassa een
+ * seconde offline is, en dan leert iedereen die melding wegkijken.
+ */
+const nogNietGeweest = wachtrijLib.vatWachtrij([
+  { entity: 'sales', op: 'put', recordId: 'b1', payload: {}, createdAt: nuMeting, tries: 0 },
+])
+check('wat nog niet geweest is, zit niet vast',
+  nogNietGeweest.totaal === 1 && nogNietGeweest.vast === 0)
+check('en levert dus geen melding op', wachtrijLib.vastKort(nogNietGeweest) === null)
+
+const eenPoging = wachtrijLib.vatWachtrij([
+  { entity: 'sales', op: 'put', recordId: 'b1', payload: {}, createdAt: nuMeting,
+    tries: 3, lastError: 'time-out' },
+])
+check('een gewone mislukte poging ook niet', eenPoging.vast === 0)
+
+/* ---- en wat wel vastzit ---- */
+
+const vast = wachtrijLib.vatWachtrij([
+  { entity: 'timeEntries', op: 'put', recordId: 't1', payload: {},
+    createdAt: nuMeting - 95 * 60_000, tries: 0, geweigerd: 12,
+    lastError: 'De database weigert dit voor "time_entries"' },
+  { entity: 'timeEntries', op: 'put', recordId: 't2', payload: {},
+    createdAt: nuMeting - 30 * 60_000, tries: 0, geweigerd: 4 },
+  { entity: 'saleLines', op: 'put', recordId: 'r1', payload: {},
+    createdAt: nuMeting - 10 * 60_000, tries: 0, geweigerd: 2 },
+  { entity: 'sales', op: 'put', recordId: 'b9', payload: {}, createdAt: nuMeting, tries: 0 },
+])
+
+check('de uren worden apart geteld', vast.uren === 2, String(vast.uren))
+check('en het totaal dat vastzit', vast.vast === 3, String(vast.vast))
+check('de rest van de wachtrij telt mee in het totaal', vast.totaal === 4)
+check('de oudste bepaalt sinds wanneer', vast.sindsMs === nuMeting - 95 * 60_000)
+check('en zijn reden komt mee',
+  (vast.reden ?? '').includes('weigert dit voor'), vast.reden ?? '')
+
+const kort = wachtrijLib.vastKort(vast) ?? ''
+check('de balk noemt de uren en niet de rest', kort === '2 klokregels vast', kort)
+
+const verhaal = wachtrijLib.vastVerhaal(vast, nuMeting) ?? ''
+check('de melding zegt hoeveel klokkingen er vastzitten',
+  verhaal.includes('2 in- en uitklokkingen'), verhaal)
+check('en noemt de rest in gewone woorden en niet in tabelnamen',
+  verhaal.includes('1 bonregel') && !verhaal.includes('saleLines'), verhaal)
+/*
+ * "1x bonregels" stond op de eerste afdruk, en dat is het soort scheve zin
+ * waardoor iemand een waarschuwing niet meer serieus neemt.
+ */
+check('en zet enkelvoud waar het er een is',
+  !verhaal.includes('1x') && !verhaal.includes('1 bonregels'), verhaal)
+check('en zegt hoe lang het al mis is',
+  verhaal.includes('1 uur en 35 minuten'), verhaal)
+
+/*
+ * De regel die het verschil maakt tussen een melding en paniek. Zonder deze
+ * zin leest het als "je uren zijn kwijt", en gaat iemand ze op een briefje
+ * bijhouden terwijl ze er nog zijn.
+ */
+check('en dat er niets is weggegooid', verhaal.includes('niets weggegooid'), verhaal)
+check('en wat hij nu moet doen', verhaal.includes('Meld het'), verhaal)
+
+/* ---- zonder uren blijft het netjes ---- */
+
+const alleenBonnen = wachtrijLib.vatWachtrij([
+  { entity: 'sales', op: 'put', recordId: 'b1', payload: {},
+    createdAt: nuMeting - 5 * 60_000, tries: 0, geweigerd: 1 },
+])
+check('zonder uren noemt de balk gewoon regels',
+  wachtrijLib.vastKort(alleenBonnen) === '1 regel vast')
+check('en de melding heeft het niet over klokkingen',
+  !(wachtrijLib.vastVerhaal(alleenBonnen, nuMeting) ?? '').includes('uitklokking'))
+
+/* ---- en het staat ook echt in de stand die het scherm uitleest ---- */
+
+await klok.uitklokken(klokker.id)
+await db.outbox.clear()
+await klok.inklokken(klokker, register.locationId)
+zetPush(async () => {
+  throw new foutsoorten.GeenRechten('time_entries', 'geweigerd op de rechten')
+})
+await pushPerStuk(await db.outbox.toArray())
+await useSync.getState().refreshPending()
+zetPush(echtePush)
+
+const standScherm = useSync.getState().vast
+check('de synchronisatiestand die het scherm uitleest weet het ook',
+  standScherm.uren === 1 && standScherm.vast === 1,
+  `uren ${standScherm.uren}, vast ${standScherm.vast}`)
+check('en heeft een tekst voor de balk',
+  wachtrijLib.vastKort(standScherm) === '1 klokregel vast')
+
+await db.outbox.clear()
 
 await db.close()
 
