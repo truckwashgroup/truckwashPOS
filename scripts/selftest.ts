@@ -1226,6 +1226,35 @@ check('elke kluisboeking staat in de wachtrij', kluisWachtrij.length >= 5,
 check('de kluisboeking gaat na de kassadag de deur uit',
   PUSH_ORDER.indexOf('safeMoves') > PUSH_ORDER.indexOf('cashSessions'))
 
+/*
+ * Twee tabellen mag de kassa alleen bijwerken en niet aanmaken: zijn eigen
+ * kassa en zijn eigen regel in de apparatenlijst. Die worden door het kantoor
+ * en door de koppelfunctie gemaakt.
+ *
+ * Dit ging mis met een upsert. Die is voor alle andere tabellen precies goed --
+ * een bon die opnieuw wordt aangeboden mag niet stuklopen op "bestaat al" --
+ * maar voor Postgres is het een INSERT met een uitweg, en die wordt eerst tegen
+ * de INSERT-regel gehouden. Voor een apparaat bestaat die niet. Aan de balie
+ * stond "new row violates row-level security policy for table pos_devices",
+ * over een nieuwe rij die er niet was.
+ */
+check('de kassa maakt zijn eigen kassa en apparaat niet aan',
+  foutsoorten.ALLEEN_BIJWERKEN.includes('registers') &&
+  foutsoorten.ALLEEN_BIJWERKEN.includes('devices'),
+  foutsoorten.ALLEEN_BIJWERKEN.join(', '))
+
+check('en bonnen en uren gaan wel als upsert, want die maakt hij zelf',
+  !foutsoorten.ALLEEN_BIJWERKEN.includes('sales') &&
+  !foutsoorten.ALLEEN_BIJWERKEN.includes('timeEntries'))
+
+/*
+ * Een naam die er niet is, valt stil terug op de upsert -- en dan is de fout
+ * terug zonder dat iemand het merkt.
+ */
+check('en die lijst bevat alleen tabellen die de kassa echt verstuurt',
+  foutsoorten.ALLEEN_BIJWERKEN.every((e) => PUSH_ORDER.includes(e)),
+  foutsoorten.ALLEEN_BIJWERKEN.filter((e) => !PUSH_ORDER.includes(e)).join(', '))
+
 /* ---- de herinnering om te tellen ---- */
 
 check('een verse telling geeft geen herinnering',

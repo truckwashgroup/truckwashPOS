@@ -123,6 +123,31 @@ const OVERRIDES: Partial<Record<EntityName, Record<string, string>>> = {
   users: { function: 'job_title' },
 }
 
+/* ------------------------------------------------------------------ *
+ *  Tabellen die de kassa alleen mag bijwerken, niet aanmaken
+ *
+ *  Twee rijen in de database horen bij dit apparaat en worden door iemand
+ *  anders gemaakt: zijn kassa (door het kantoor) en zijn eigen regel in de
+ *  apparatenlijst (door de serverfunctie bij het koppelen). De kassa mag daar
+ *  bepaalde velden in bijwerken -- de printerinstelling, en dat hij er nog is
+ *  -- en verder niets.
+ *
+ *  De beveiligingsregels zijn daarop ingericht: er staat voor deze twee alleen
+ *  een UPDATE-regel voor het eigen apparaat, en geen INSERT-regel.
+ *
+ *  En daar ging het mis. De kassa stuurde alles als upsert, want dat is voor
+ *  alle andere tabellen precies goed: een bon die opnieuw wordt aangeboden mag
+ *  niet stuklopen op "bestaat al". Maar een upsert is voor Postgres een INSERT
+ *  met een uitweg, en die wordt eerst tegen de INSERT-regel gehouden. Die
+ *  bestaat niet, dus kwam er "new row violates row-level security policy for
+ *  table pos_devices" terug -- een melding over een nieuwe rij, terwijl er
+ *  niets nieuws was.
+ *
+ *  Voor deze twee sturen we daarom een gewone update. Dat is ook wat het is.
+ * ------------------------------------------------------------------ */
+
+export const ALLEEN_BIJWERKEN: EntityName[] = ['registers', 'devices']
+
 /**
  * Tabellen waarvan we bij de eerste synchronisatie niet de hele historie
  * ophalen. Ze groeien met elke bon; de kassa heeft alleen de recente nodig.
@@ -389,7 +414,24 @@ export const supabaseApi: ApiAdapter = {
       const upserts = list
         .filter((c) => c.op === 'put')
         .map((c) => toRow(entity, c.payload as Record<string, unknown>))
-      if (upserts.length) {
+
+      if (upserts.length && ALLEEN_BIJWERKEN.includes(entity)) {
+        /*
+         * Eén voor één bijwerken op id, en niet als upsert. Zie de uitleg bij
+         * ALLEEN_BIJWERKEN: een upsert is een INSERT, en die mag de kassa hier
+         * niet -- ook niet als de rij al bestaat.
+         *
+         * Raakt het niets omdat de rij aan de serverkant weg is, dan is dat
+         * geen fout: het kantoor heeft die kassa of dat apparaat dan
+         * verwijderd, en dan hoort de kassa hem niet opnieuw neer te zetten.
+         */
+        for (const rij of upserts) {
+          const { id, ...velden } = rij as { id?: string } & Record<string, unknown>
+          if (!id) continue
+          const { error } = await supabase().from(table).update(velden).eq('id', id)
+          if (error) weiger(table, `bijwerken in ${table}`, error)
+        }
+      } else if (upserts.length) {
         const { error } = await supabase().from(table).upsert(upserts, { onConflict: 'id' })
         if (error) weiger(table, `opslaan in ${table}`, error)
       }
