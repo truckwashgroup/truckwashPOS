@@ -24,6 +24,9 @@ import { useTheme } from './lib/theme'
 import { huidigeRegister } from './lib/kassa'
 import { apparaatGezien, huidigApparaat } from './lib/koppelen'
 import { can } from './lib/permissions'
+import { magOpKassa } from './lib/code'
+import { db } from './lib/db'
+import { toast } from './store/useToasts'
 import { startSyncEngine, useSync } from './lib/sync'
 import { vastKort } from './lib/wachtrij'
 import { useUpdates } from './lib/updates'
@@ -105,6 +108,33 @@ function Kassascherm() {
   useEffect(() => {
     if (apparaat) startSyncEngine()
   }, [apparaat])
+
+  /*
+   * Mag wie er nu achter de kassa staat er nog steeds staan?
+   *
+   * Zonder dit hield een ingetrokken recht pas op bij de volgende aanmelding,
+   * of na vijf minuten stilte. Iemand die de hele middag doorverkoopt, merkt
+   * daar niets van -- en dat is precies het geval waarin het uitmaakt.
+   *
+   * Dit leest de lokale cache, en die wordt sinds deze versie ook opgeruimd
+   * (zie verwijderWatWegIs in sync.ts). Trekt het kantoor iets in, dan is dat
+   * hier binnen een synchronisatieronde bekend.
+   */
+  const magNog = useLiveQuery(async () => {
+    if (!operator) return true
+    const rij = await db.users.get(operator.id)
+    if (!rij || !rij.active) return false
+    return magOpKassa(rij, register?.locationId, 'pos.use').ok
+  }, [operator?.id, register?.locationId], true)
+
+  useEffect(() => {
+    if (!operator || magNog !== false) return
+    meldAf()
+    setAlleenKlok(false)
+    toast.warn(
+      `${operator.name.split(' ')[0]} is afgemeld: het kantoor heeft de ` +
+      'toegang tot deze kassa ingetrokken. Inklokken kan nog wel.')
+  }, [magNog, operator?.id])
 
   /*
    * Bijhouden dat dit apparaat er nog is, zodat het in de lijst van het

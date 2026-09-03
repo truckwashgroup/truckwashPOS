@@ -299,7 +299,13 @@ export const useAuth = create<AuthStore>((set, get) => ({
      * alleen de kassa van die vestiging -- zie magOpKassa in code.ts voor
      * waarom dat er hoort te staan.
      */
-    const uitslag = await herkenOpNummer(nummer, await kassaLocatie())
+    /*
+     * pos.use erbij. Aanmelden aan de kassa is verkopen, en daar hoort een
+     * recht bij -- dat stond in de README en werd nergens getoetst.
+     *
+     * Het klokscherm vraagt dit met opzet niet: iedereen op de vloer klokt in.
+     */
+    const uitslag = await herkenOpNummer(nummer, await kassaLocatie(), 'pos.use')
     if (uitslag.ok) {
       set({ operator: uitslag.user, laatsteActie: Date.now() })
       return { ok: true }
@@ -308,7 +314,7 @@ export const useAuth = create<AuthStore>((set, get) => ({
   },
 
   meldAanMetBadge: async (token) => {
-    const uitslag = await herkenBadge(token, await kassaLocatie())
+    const uitslag = await herkenBadge(token, await kassaLocatie(), 'pos.use')
     if (uitslag.ok) {
       set({ operator: uitslag.user, laatsteActie: Date.now() })
       return { ok: true }

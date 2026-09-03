@@ -438,6 +438,33 @@ export const supabaseApi: ApiAdapter = {
     }
   },
 
+  /**
+   * Alleen de id's, gepagineerd. Dat is een kolom van een tabel die de kassa
+   * toch al binnenhaalt, dus het kost een fractie -- en het is het enige
+   * waarmee je kunt zien dat er iets wég is.
+   */
+  async zichtbareIds(entity: EntityName): Promise<string[]> {
+    if (!(await heeftSessie())) throw new GeenSessie()
+
+    const table = TABLES[entity]
+    const uit: string[] = []
+
+    for (let pagina = 0; ; pagina++) {
+      const { data, error } = await supabase()
+        .from(table)
+        .select('id')
+        .order('id', { ascending: true })
+        .range(pagina * PAGINA, pagina * PAGINA + PAGINA - 1)
+
+      if (error) weiger(table, `id's ophalen van ${table}`, error)
+      const rijen = data ?? []
+      uit.push(...rijen.map((r) => String((r as { id: unknown }).id)))
+      if (rijen.length < PAGINA) break
+    }
+
+    return uit
+  },
+
   async pull(since: number): Promise<PullResult> {
     const changes: PullResult['changes'] = {}
     const eersteKeer = since === 0

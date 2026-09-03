@@ -124,7 +124,15 @@ In het dashboard, onder **Personeel → Rechten**, staan zes nieuwe rechten:
 | `pos.safe` | De kluis: afstorten, wisselgeld, tellen | management |
 | `pos.manage` | Artikelen, prijzen, codes en de printer | management |
 
-Wie geen `pos.use` heeft, staat niet in de lijst bij het aanmelden.
+**Wie geen `pos.use` heeft, komt niet achter de kassa.** Dat stond hier al,
+maar werd tot versie 0.14.0 nergens getoetst: wie een nummer intoetste dat in
+de cache stond, kwam erin. Nu wordt het gecontroleerd bij het aanmelden én bij
+de badge, en wordt iemand die het recht halverwege verliest binnen een
+synchronisatieronde afgemeld.
+
+Inklokken vraagt dit recht met opzet niet. Iedereen op de vloer klokt in, ook
+wie niet achter de kassa mag staan — zou het klokscherm `pos.use` vragen, dan
+kan de helft van het personeel zijn uren niet kwijt.
 
 De kluis staat bewust een stap hoger dan de lade. De lade telt wie er die dag
 achter staat; de kluis is van het bedrijf. Wie het recht niet heeft, ziet de tab

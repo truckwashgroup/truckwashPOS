@@ -67,8 +67,8 @@ const kassa = await import('../src/lib/kassa')
 const kas = await import('../src/lib/kas')
 const { bonOpmaken, alsTekst, bonGegevens } = await import('../src/lib/bon')
 const {
-  NOOIT_STUREN, PUSH_ORDER, enqueue, pushPerStuk,
-  ruimNietMeerVerstuurbaarOp, useSync,
+  NOOIT_STUREN, OPSCHONEN, PUSH_ORDER, enqueue, pushPerStuk,
+  ruimNietMeerVerstuurbaarOp, useSync, verwijderWatWegIs,
 } = await import('../src/lib/sync')
 const wachtrijLib = await import('../src/lib/wachtrij')
 const foutsoorten = await import('../src/lib/api/supabaseApi')
@@ -1323,6 +1323,171 @@ check('en er staat niets meer vast', useSync.getState().vast.vast === 0)
 await db.outbox.clear()
 await useSync.getState().refreshPending()
 
+
+/* ================================================================== *
+ *  21. Toegang intrekken werkt ook echt
+ *
+ *  Twee gaten, en ze zaten er allebei. Gemeld met: "je kan nog steeds
+ *  inloggen, ook als ik de vestiging weghaal, zelfs als ik de volledige
+ *  permissie weghaal."
+ *
+ *  1. Het recht werd nergens getoetst. In de README stond dat wie geen pos.use
+ *     heeft niet aanmeldt, maar herkenOpNummer keek alleen naar het nummer, of
+ *     iemand actief was, en de vestiging.
+ *
+ *  2. De cache gooide nooit iets weg. pull() vertelt wat er is bijgekomen of
+ *     gewijzigd, niet wat er wég is -- en "weg" is hier niet alleen verwijderd:
+ *     haal je de rollen weg, dan valt het dossier buiten wat de kassa mag zien
+ *     en komt het simpelweg niet meer mee. De oude rij bleef staan, met de oude
+ *     rollen en de oude vestiging, en daarmee kon iemand blijven aanmelden. Op
+ *     elke kassa, voor altijd.
+ * ================================================================== */
+
+console.log('\n21. Toegang intrekken werkt ook echt')
+
+const kassaVest = register.locationId ?? 'loc_test'
+
+/* ---- het recht ---- */
+
+const metRecht = { locationId: kassaVest, roles: ['employee'], active: true } as any
+check('een werknemer met pos.use mag aanmelden',
+  magOpKassa(metRecht, kassaVest, 'pos.use').ok)
+
+/*
+ * pos.use zit in de rol employee. Trek je het in met revokes, dan is het weg --
+ * en dat was precies wat er niet werd getoetst.
+ */
+const ingetrokken = { ...metRecht, revokes: ['pos.use'] }
+const geenRecht = magOpKassa(ingetrokken, kassaVest, 'pos.use')
+check('met pos.use ingetrokken niet',
+  !geenRecht.ok && geenRecht.reden === 'geen-recht', JSON.stringify(geenRecht))
+
+check('en zonder enkele rol al helemaal niet',
+  !magOpKassa({ locationId: kassaVest, roles: [], active: true } as any,
+    kassaVest, 'pos.use').ok)
+
+/*
+ * En het geval dat het in het echt was: management met pos.use ingetrokken, en
+ * alle vestigingen aan. Die kwam er langs de vestigingspoort heen -- dat is de
+ * bedoeling van "werkt op alle vestigingen" -- en er was niets dat het recht
+ * toetste. Intrekken wint van een rol, ook van management.
+ */
+const baasIngetrokken = {
+  locationId: 'loc_asten', allLocations: true, active: true,
+  roles: ['employee', 'management'], revokes: ['pos.use'],
+} as any
+check('management met pos.use ingetrokken komt er ook niet in',
+  !magOpKassa(baasIngetrokken, kassaVest, 'pos.use').ok)
+check('en de vestigingspoort liet hem juist wél door -- dat was het niet',
+  magOpKassa(baasIngetrokken, kassaVest).ok)
+
+/*
+ * Maar inklokken vraagt dat recht niet, en dat is geen slordigheid. Iedereen op
+ * de vloer klokt in, ook wie niet achter de kassa mag staan. Zou het klokscherm
+ * pos.use vragen, dan kan de helft van het personeel zijn uren niet kwijt.
+ */
+check('maar inklokken mag hij nog wel',
+  magOpKassa(ingetrokken, kassaVest).ok)
+
+const meldingGeenRecht = herkenFout({ ok: false, reden: 'geen-recht', naam: 'Ali Yildiz' } as any)
+check('en de melding zegt dat klokken nog kan',
+  meldingGeenRecht.includes('Alleen klokken'), meldingGeenRecht)
+check('en waar het recht vandaan komt',
+  meldingGeenRecht.includes('Rechten'), meldingGeenRecht)
+
+/* ---- door de echte deur ---- */
+
+const zonderRecht: User = {
+  ...wasser, id: 'u_zonder', email: 'zonder@truckwash1group.nl',
+  name: 'Rob Zonder', personnelNumber: 'TW-808',
+  locationId: kassaVest, revokes: ['pos.use'],
+}
+await db.users.put(zonderRecht)
+
+const pogingZonder = await herkenOpNummer('808', kassaVest, 'pos.use')
+check('aanmelden aan de kassa lukt niet zonder pos.use',
+  !pogingZonder.ok && pogingZonder.reden === 'geen-recht',
+  JSON.stringify(pogingZonder))
+
+const pogingKlok = await herkenOpNummer('808', kassaVest)
+check('en inklokken lukt wel', pogingKlok.ok)
+
+/* ---- en wat de server niet meer laat zien, gaat uit de cache ---- */
+
+/*
+ * Dit is het tweede gat. De echte push en pull worden onderschept, zodat
+ * gemeten wordt wat verwijderWatWegIs doet en niet wat de server vindt.
+ */
+const echtIds = (deApi as any).zichtbareIds
+const zetIds = (fn: any) => { (deApi as any).zichtbareIds = fn }
+
+check('artikelen, personeel, voorraad en vestigingen worden opgeschoond',
+  OPSCHONEN.includes('users') && OPSCHONEN.includes('products') &&
+  OPSCHONEN.includes('inventory') && OPSCHONEN.includes('locations'))
+
+/*
+ * En de journaaltabellen juist niet. Die vallen na zestig dagen buiten de
+ * horizon, dus opschonen zou betekenen dat de kassa zijn eigen bonnen wist.
+ */
+check('en bonnen, uren en kluisboekingen juist niet',
+  !OPSCHONEN.includes('sales') && !OPSCHONEN.includes('timeEntries') &&
+  !OPSCHONEN.includes('safeMoves') && !OPSCHONEN.includes('payments'))
+
+await db.outbox.clear()
+const ietsErbij: User = {
+  ...wasser, id: 'u_ingetrokken', email: 'weg@truckwash1group.nl',
+  name: 'Wim Weg', personnelNumber: 'TW-809', locationId: kassaVest,
+}
+await db.users.put(ietsErbij)
+check('hij staat in de cache', Boolean(await db.users.get('u_ingetrokken')))
+
+// De server laat hem niet meer zien; de anderen wel.
+const blijvers = (await db.users.toArray())
+  .map((u) => u.id).filter((id) => id !== 'u_ingetrokken')
+zetIds(async (entiteit: string) => {
+  if (entiteit === 'users') return blijvers
+  return (await (db as any)[entiteit === 'inventory' ? 'inventory' : entiteit].toArray())
+    .map((r: { id: string }) => r.id)
+})
+
+const opgeschoond = await verwijderWatWegIs()
+check('en na een ronde is hij uit de cache', !(await db.users.get('u_ingetrokken')),
+  `${opgeschoond} opgeruimd`)
+check('en de rest staat er nog', Boolean(await db.users.get(wasser.id)))
+
+const naOpschonen = await herkenOpNummer('809', kassaVest, 'pos.use')
+check('en aanmelden lukt niet meer',
+  !naOpschonen.ok && naOpschonen.reden === 'onbekend', JSON.stringify(naOpschonen))
+
+/* ---- de rem: een lege lijst is verdacht, geen opdracht ---- */
+
+/*
+ * Zou de kassa op een leeg antwoord zijn cache leeggooien, dan maakt één
+ * rechten- of sessieprobleem een kassa die offline moet kunnen werken volledig
+ * onbruikbaar. Dat is erger dan een dossier dat een ronde te lang blijft staan.
+ */
+const voorLeeg = await db.users.count()
+zetIds(async () => [])
+await verwijderWatWegIs()
+check('een leeg antwoord gooit de cache niet leeg',
+  (await db.users.count()) === voorLeeg, String(await db.users.count()))
+
+/* ---- en wat nog verstuurd moet worden, blijft staan ---- */
+
+await db.users.put(ietsErbij)
+await enqueue('users', 'put', 'u_ingetrokken', ietsErbij)
+zetIds(async (entiteit: string) => (entiteit === 'users' ? blijvers : ['x']))
+await verwijderWatWegIs()
+check('een rij die nog in de wachtrij staat wordt niet opgeruimd',
+  Boolean(await db.users.get('u_ingetrokken')))
+
+zetIds(echtIds)
+await db.users.delete('u_ingetrokken')
+await db.users.delete('u_zonder')
+await db.outbox.clear()
+await useSync.getState().refreshPending()
+
+/* ================================================================== */
 
 /* ================================================================== *
  *  12. Briefjes en munten

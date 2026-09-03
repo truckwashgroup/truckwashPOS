@@ -1,6 +1,7 @@
 import { db, getMeta, setMeta, uid } from './db'
 import { enqueue } from './sync'
-import type { PosPin, User } from './types'
+import type { Permission, PosPin, User } from './types'
+import { can } from './permissions'
 
 /* ------------------------------------------------------------------ *
  *  Wie staat er achter de kassa?
@@ -114,7 +115,7 @@ export type HerkenResultaat =
   | {
       ok: false
       reden: 'onbekend' | 'geblokkeerd' | 'inactief' | 'dubbel' | 'geen-nummer'
-             | 'andere-vestiging' | 'geen-vestiging'
+             | 'andere-vestiging' | 'geen-vestiging' | 'geen-recht'
       wachtMs?: number
       /** Bij 'dubbel': wie er allemaal op dit nummer staan. */
       namen?: string[]
@@ -160,6 +161,16 @@ export function herkenFout(uitslag: Extract<HerkenResultaat, { ok: false }>): st
         'Moet hij op meer vestigingen kunnen werken, dan zet het kantoor dat ' +
         'in zijn dossier.'
 
+    case 'geen-recht':
+      /*
+       * Met erbij dat klokken wél kan. Iemand die alleen komt inklokken en
+       * hier "je mag de kassa niet gebruiken" leest, denkt dat hij zijn uren
+       * niet kwijt kan -- en gaat ze op een briefje bijhouden.
+       */
+      return `${uitslag.naam ?? 'Deze medewerker'} mag de kassa niet gebruiken. ` +
+        'Dat recht deelt het management uit in het dashboard, onder ' +
+        'Personeel → Rechten. Inklokken kan wel: gebruik "Alleen klokken".'
+
     case 'geen-vestiging':
       return `${uitslag.naam ?? 'Deze medewerker'} heeft geen vestiging in zijn ` +
         'dossier, dus weet de kassa niet of hij hier hoort. Dat zet het kantoor ' +
@@ -199,12 +210,31 @@ export function herkenFout(uitslag: Extract<HerkenResultaat, { ok: false }>): st
 
 export type KassaToegang =
   | { ok: true }
-  | { ok: false; reden: 'andere-vestiging' | 'geen-vestiging' }
+  | { ok: false; reden: 'andere-vestiging' | 'geen-vestiging' | 'geen-recht' }
 
 export function magOpKassa(
-  user: Pick<User, 'locationId' | 'manages' | 'allLocations'>,
+  user: Pick<User, 'locationId' | 'manages' | 'allLocations' | 'roles' | 'grants' | 'revokes' | 'active'>,
   kassaLocatie: string | undefined | null,
+  /*
+   * Het recht dat deze deur vraagt.
+   *
+   * Bij het aanmelden om te verkopen is dat pos.use. Bij inklokken juist niet:
+   * iedereen op de vloer klokt in, ook wie niet achter de kassa mag staan.
+   * Zouden die twee hetzelfde recht vragen, dan kan de helft van het personeel
+   * zijn uren niet meer kwijt -- en dan is de kassa erger dan geen kassa.
+   */
+  recht?: Permission,
 ): KassaToegang {
+  /*
+   * Eerst het recht, en dan de vestiging.
+   *
+   * Dit stond er niet, en dat was een gat: wie een nummer intoetste dat in de
+   * cache stond kwam erin, ongeacht rechten. In de README stond al jaren dat
+   * wie geen pos.use heeft niet in de lijst staat -- maar dat werd nergens
+   * getoetst.
+   */
+  if (recht && !can(user as User, recht)) return { ok: false, reden: 'geen-recht' }
+
   if (!kassaLocatie) return { ok: true }
   if (user.allLocations) return { ok: true }
   if (user.locationId && user.locationId === kassaLocatie) return { ok: true }
@@ -247,6 +277,8 @@ export async function herkenOpNummer(
    * zelftest en voor een kassa die nog geen vestiging heeft.
    */
   kassaLocatie?: string,
+  /** Het recht dat deze deur vraagt. Zie magOpKassa. */
+  recht?: Permission,
 ): Promise<HerkenResultaat> {
   const wacht = await wachttijd()
   if (wacht > 0) return { ok: false, reden: 'geblokkeerd', wachtMs: wacht }
@@ -289,7 +321,7 @@ export async function herkenOpNummer(
    * De rem op misgetoetste nummers blijft hier ook buiten: het nummer is juist
    * wél goed.
    */
-  const toegang = magOpKassa(actief[0], kassaLocatie)
+  const toegang = magOpKassa(actief[0], kassaLocatie, recht)
   if (!toegang.ok) {
     await gelukt()
     return {
@@ -308,6 +340,7 @@ export async function herkenOpNummer(
 export async function herkenBadge(
   token: string,
   kassaLocatie?: string,
+  recht?: Permission,
 ): Promise<HerkenResultaat> {
   const pin = await db.pins.where('badgeToken').equals(token.trim()).first()
   if (!pin) return { ok: false, reden: 'onbekend' }
@@ -316,7 +349,7 @@ export async function herkenBadge(
   if (!user.active) return { ok: false, reden: 'inactief' }
 
   // Een badge is dezelfde deur als een nummer, dus dezelfde poort ervoor.
-  const toegang = magOpKassa(user, kassaLocatie)
+  const toegang = magOpKassa(user, kassaLocatie, recht)
   if (!toegang.ok) {
     return {
       ok: false,

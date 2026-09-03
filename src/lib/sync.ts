@@ -89,12 +89,19 @@ export const useSync = create<SyncStore>((set, get) => ({
       const geduwd = await pushOutbox()
       const { serverTime, opgehaald } = await pullChanges()
 
+      /*
+       * En dan wat er weg is. Ná het ophalen, zodat een rij die net is
+       * gewijzigd eerst binnenkomt en niet ten onrechte als verdwenen geldt.
+       */
+      const verdwenen = await verwijderWatWegIs()
+
       await setMeta(LAST_SYNC, serverTime)
       set({ lastSyncAt: serverTime, lastError: null })
 
-      logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald`, {
-        duur: Date.now() - begin,
-      })
+      logLive('sync',
+        `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald` +
+        (verdwenen ? `, ${verdwenen} opgeruimd` : ''),
+        { duur: Date.now() - begin })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       set({ lastError: msg, online: navigator.onLine && !msg.includes('verbinding') })
@@ -399,6 +406,83 @@ async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }>
   }
 
   return { serverTime: result.serverTime, opgehaald }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat weg is, hoort ook hier weg te zijn
+ *
+ *  Dit ontbrak, en het was een gat in de beveiliging.
+ *
+ *  pull() vertelt wat er is bijgekomen of gewijzigd sinds de laatste ronde. Wat
+ *  het niet vertelt, is wat er wég is -- en "weg" is bij een kassa niet alleen
+ *  verwijderd. Haal je in het dashboard de rollen van iemand weg, dan valt zijn
+ *  dossier buiten wat deze kassa mag zien (profiles_select vraagt is_staff), en
+ *  dan komt het simpelweg niet meer mee. De oude rij bleef daardoor voor altijd
+ *  in de cache staan, met de oude rollen en de oude vestiging.
+ *
+ *  Het gevolg: iemand van wie de rechten waren ingetrokken kon nog steeds
+ *  aanmelden en verkopen. Op elke kassa, voor altijd, zolang niemand de app
+ *  opnieuw installeerde.
+ *
+ *  Vandaar deze ronde: van de tabellen met stamgegevens halen we de id's op die
+ *  we nú mogen zien, en wat daar lokaal buiten valt gaat eruit.
+ *
+ *  Alleen stamgegevens, en dat is geen luiheid. Bij bonnen, uren en
+ *  kluisboekingen zou dit rampzalig zijn: die vallen na zestig dagen buiten de
+ *  horizon en zouden dus opgeruimd worden, en wat nog in de wachtrij staat
+ *  bestaat aan de serverkant nog helemaal niet.
+ * ------------------------------------------------------------------ */
+
+export const OPSCHONEN: EntityName[] = ['users', 'products', 'inventory', 'locations']
+
+export async function verwijderWatWegIs(): Promise<number> {
+  let weg = 0
+
+  // Wat nog verstuurd moet worden, blijft staan -- dat bestaat aan de
+  // serverkant nog niet en zou hier onterecht als "weg" gelden.
+  const wachtend = new Set((await db.outbox.toArray()).map((r) => r.entity + ':' + r.recordId))
+
+  for (const entiteit of OPSCHONEN) {
+    let mogen: string[]
+    try {
+      mogen = await api.zichtbareIds(entiteit)
+    } catch {
+      // Lukt het ophalen niet, dan weten we niets en gooien we niets weg.
+      continue
+    }
+
+    const tabel = TABLE_OF[entiteit]()
+    const hier: string[] = (await tabel.toArray()).map((r: { id: string }) => r.id)
+    if (!hier.length) continue
+
+    /*
+     * Een rem die er moet zijn: komt er niets terug terwijl wij wél rijen
+     * hebben, dan is er eerder iets mis met de sessie of de rechten dan dat
+     * alles echt verwijderd is. In dat geval de cache leeggooien zou een kassa
+     * die offline moet kunnen werken volledig onbruikbaar maken.
+     */
+    if (!mogen.length) {
+      logLive('waarschuwing',
+        `${entiteit}: de server gaf geen enkele rij terug terwijl er hier ` +
+        `${hier.length} staan. Niets opgeruimd -- dit lijkt eerder een ` +
+        'rechten- of sessieprobleem dan dat alles verwijderd is.')
+      continue
+    }
+
+    const magBlijven = new Set(mogen)
+    const eruit = hier.filter((id) =>
+      !magBlijven.has(id) && !wachtend.has(entiteit + ':' + id))
+
+    if (eruit.length) {
+      await tabel.bulkDelete(eruit)
+      weg += eruit.length
+      logLive('sync',
+        `${eruit.length}x ${entiteit} uit de cache gehaald: die mag deze kassa ` +
+        'niet meer zien.')
+    }
+  }
+
+  return weg
 }
 
 /* ------------------------------------------------------------------ *
