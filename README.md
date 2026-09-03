@@ -210,6 +210,38 @@ Vier soorten:
   QR-code op de bon.
 - **Abonnement** — een periode onbeperkt wassen.
 
+#### Artikelen van Trucksupply
+
+De leverancier beheert de artikelen in het dashboard. Wat daar staat komt via
+`inventory_items` in de kassa terecht, en een serverfunctie zet het in
+`pos_products` — niemand tikt een artikel twee keer in.
+
+Op het kassascherm betekent dat:
+
+- **De foto komt van het artikel** als er geen eigen productfoto is. Zet je er
+  hier zelf een, dan gaat die voor: die heeft iemand aan de kassa met opzet
+  gekozen.
+- **De voorraadstand staat op de tegel** bij alles wat aan de voorraad hangt.
+  Grijs lees je langs, geel is onder het minimum (Trucksupply heeft daar al
+  bericht van), rood is op. De balie hoeft er niets aan te doen, maar wie iets
+  niet kan verkopen hoort te kunnen zien waarom.
+- **Een artikel dat de leverancier uitzet, verdwijnt van het scherm.** Een bon
+  die er al mee bezig was kan gewoon af — anders staat er een chauffeur met een
+  fles in zijn hand die niet meer af te rekenen valt.
+
+In Beheer staat bij zo'n artikel dat Trucksupply het beheert. Naam en foto
+staan vast: die worden bij een levering bijgewerkt, dus wat je hier intikt zou
+bij de volgende synchronisatie weg zijn. Prijs, groep, kleur en de plaats op
+het scherm blijven van de kassa — wat een chauffeur betaalt en waar de tegel
+staat, is kassawerk.
+
+> **Op een gekoppelde kassa is Beheer → Artikelen alleen lezen.** Het eigen
+> inlogaccount van een kassa mag `pos_products` niet wijzigen; anders zijn de
+> inloggegevens van een tablet achter de balie genoeg om prijzen te wijzigen.
+> Het scherm zegt dat er ook bij in plaats van invoer aan te nemen die de
+> server weigert. Moet het daar wél kunnen, dan hoort dat recht bij die kassa
+> gezet te worden — via een migratie in de dashboard-repo.
+
 #### Een foto bij het artikel
 
 Onder het formulier van een artikel staat **Foto**. Op een tablet opent die knop

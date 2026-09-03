@@ -262,6 +262,30 @@ export interface InventoryItem {
   minStock: number
   pricePerUnit: number
   supplier: string
+
+  /* --- wat Trucksupply erbij zet ------------------------------------- *
+   *
+   * De voorraad bestond al, per vestiging en met een minimum. Wat ontbrak
+   * was de kant van de leverancier: wat er standaard per keer wordt
+   * meegestuurd, wat hij ervoor rekent, en een foto zodat de wasser het
+   * juiste vat pakt. Alles optioneel: een artikel dat de vestiging zelf
+   * inkoopt heeft dit niet en dat is geen fout.
+   */
+
+  /** Artikelnummer van de leverancier */
+  sku?: string
+  omschrijving?: string
+  /** Kleine foto als data-URI, zelfde regel als in de kassa (max ~150 kB) */
+  image?: string
+  /** Wat er standaard per keer wordt meegestuurd */
+  bestelhoeveelheid?: number
+  /** Wat Trucksupply rekent; pricePerUnit blijft de interne waarde */
+  inkoopprijs?: number
+  /** Uit staat: niet meer bestellen, wel in de historie */
+  actief?: boolean
+  /** Artikelcode in Exact, voor later */
+  exactCode?: string
+
   updatedAt: number
 }
 

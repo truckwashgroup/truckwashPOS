@@ -74,6 +74,8 @@ const munten = await import('../src/lib/munten')
 const kluis = await import('../src/lib/kluis')
 const koppelen = await import('../src/lib/koppelen')
 const beeld = await import('../src/lib/afbeelding')
+const artikel = await import('../src/lib/artikel')
+const { toRow, fromRow } = await import('../src/lib/api/supabaseApi')
 const { vergelijkVersies } = await import('../src/lib/hardware/apkUpdate')
 
 type User = import('../src/lib/types').User
@@ -1067,6 +1069,192 @@ check('wie overal mag werken komt er ook hier in', overalHier.ok)
 
 await db.users.delete('u_overal')
 await db.users.delete('u_asten')
+
+/* ================================================================== */
+
+/* ================================================================== *
+ *  20. Artikelen van Trucksupply
+ *
+ *  De leverancier beheert vanaf nu de artikelen: naam, eenheid, foto en de
+ *  voorraadstand staan in inventory_items, en een serverfunctie zet ze in
+ *  pos_products. De kassa las die voorraadtabel al -- verkoop boekt er af --
+ *  maar liet er niets van zien.
+ *
+ *  Wat hier gemeten wordt is het samenvoegen van die twee, en de twee dingen
+ *  die daarbij stil fout kunnen gaan: een kolomnaam die niet omgezet wordt, en
+ *  een verkoop van een artikel dat de leverancier net heeft uitgezet.
+ * ================================================================== */
+
+console.log('\n20. Artikelen van Trucksupply')
+
+/* ---- komen de nieuwe kolommen door de omzetting? ---- */
+
+const uitDatabase = fromRow('inventory', {
+  id: 'inv_1',
+  location_id: 'loc_utr',
+  name: 'Ruitenwisservloeistof',
+  unit: 'fles',
+  stock: 4,
+  min_stock: 6,
+  price_per_unit: 3.2,
+  supplier: 'Trucksupply',
+  sku: 'TS-1044',
+  omschrijving: 'Zomer, 5 liter',
+  image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+  bestelhoeveelheid: 12,
+  inkoopprijs: 2.75,
+  actief: true,
+  exact_code: 'EX-1044',
+  updated_at: 1,
+}) as any
+
+check('min_stock wordt minStock', uitDatabase.minStock === 6)
+check('exact_code wordt exactCode', uitDatabase.exactCode === 'EX-1044')
+check('bestelhoeveelheid blijft bestelhoeveelheid', uitDatabase.bestelhoeveelheid === 12)
+check('en sku, omschrijving, inkoopprijs en actief komen mee',
+  uitDatabase.sku === 'TS-1044' && uitDatabase.omschrijving === 'Zomer, 5 liter' &&
+  uitDatabase.inkoopprijs === 2.75 && uitDatabase.actief === true)
+
+/*
+ * En de weg terug, want de kassa boekt voorraad af en stuurt de rij mee. Een
+ * veld dat op de terugweg een andere naam krijgt, komt in een kolom die niet
+ * bestaat -- en dan weigert de database de hele mutatie.
+ */
+const naarDatabase = toRow('inventory', uitDatabase) as any
+check('en op de terugweg heten ze weer zoals in de database',
+  'min_stock' in naarDatabase && 'exact_code' in naarDatabase &&
+  'bestelhoeveelheid' in naarDatabase && !('minStock' in naarDatabase),
+  Object.keys(naarDatabase).join(', '))
+
+/* ---- de foto van het artikel valt in ---- */
+
+const voorraadItem = {
+  id: 'inv_foto', locationId: register.locationId ?? 'loc_test',
+  name: 'Handreiniger', unit: 'fles', stock: 9, minStock: 3,
+  pricePerUnit: 2, supplier: 'Trucksupply',
+  image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+  actief: true, updatedAt: Date.now(),
+} as any
+await db.inventory.put(voorraadItem)
+
+const voorraadNu = artikel.voorraadKaart(await db.inventory.toArray())
+
+check('zonder eigen foto komt die van het artikel',
+  artikel.artikelFoto({ inventoryItemId: 'inv_foto' }, voorraadNu) === voorraadItem.image)
+
+/*
+ * En de eigen foto gaat voor. Die heeft iemand aan de kassa met opzet gekozen;
+ * zou de leverancier hem overschrijven, dan is dat werk voor niets geweest.
+ */
+const eigen = 'data:image/png;base64,iVBORw0K'
+check('een eigen foto gaat voor die van het artikel',
+  artikel.artikelFoto({ image: eigen, inventoryItemId: 'inv_foto' }, voorraadNu) === eigen)
+
+check('een artikel zonder voorraad heeft geen foto',
+  artikel.artikelFoto({ inventoryItemId: undefined }, voorraadNu) === null)
+
+check('en rommel in het veld komt er niet door',
+  artikel.artikelFoto({ image: 'data:text/html;base64,PHNjcmlwdD4=' }, voorraadNu) === null)
+
+/* ---- de voorraadstand ---- */
+
+const genoeg = artikel.artikelVoorraad({ inventoryItemId: 'inv_foto' }, voorraadNu)
+check('de stand komt uit het artikel',
+  genoeg?.stand === 9 && genoeg?.eenheid === 'fles' && !genoeg?.onderMinimum)
+
+await db.inventory.put({ ...voorraadItem, id: 'inv_laag', stock: 2, minStock: 6 } as any)
+await db.inventory.put({ ...voorraadItem, id: 'inv_leeg', stock: 0, minStock: 6 } as any)
+const voorraadDaarna = artikel.voorraadKaart(await db.inventory.toArray())
+
+const laag = artikel.artikelVoorraad({ inventoryItemId: 'inv_laag' }, voorraadDaarna)
+check('onder het minimum valt op', laag?.onderMinimum === true && laag?.leeg === false)
+
+const opVoorraadLeeg = artikel.artikelVoorraad({ inventoryItemId: 'inv_leeg' }, voorraadDaarna)
+check('en leeg is iets anders dan laag', opVoorraadLeeg?.leeg === true)
+check('en dat staat er ook zo', artikel.voorraadTekst(opVoorraadLeeg!) === 'niet op voorraad')
+/*
+ * Zonder eenheid. Op de eerste afdruk stond "9 fles op voorraad": geen
+ * Nederlands, en het liep de tegel uit. Meervoud maken van een eenheid die de
+ * leverancier zelf intikt gaat niet -- stuk, doos, rol, liter en 5L hebben elk
+ * hun eigen regel of geen.
+ */
+check('en bij genoeg staat alleen het getal',
+  artikel.voorraadTekst(genoeg!) === '9 op voorraad')
+
+/*
+ * Geen minimum ingesteld is geen tekort. Anders staat elk artikel waar niemand
+ * een minimum voor heeft bedacht in het geel, en dan kijkt iedereen eroverheen.
+ */
+await db.inventory.put({ ...voorraadItem, id: 'inv_geen_min', stock: 0, minStock: 0 } as any)
+const zonderMin = artikel.artikelVoorraad(
+  { inventoryItemId: 'inv_geen_min' }, artikel.voorraadKaart(await db.inventory.toArray()))
+check('zonder minimum is er geen tekort', zonderMin?.onderMinimum === false)
+
+check('een wasbeurt heeft geen stand',
+  artikel.artikelVoorraad({ inventoryItemId: undefined }, voorraadDaarna) === null)
+
+/* ---- wie mag artikelen bewaren ---- */
+
+/*
+ * Dit gaat over het account van de kassa en niet over wie ervoor staat, want
+ * dat is wat de database toetst. Een gekoppelde kassa heeft de rol employee en
+ * één recht: hours.clock.
+ */
+const apparaatAccount = {
+  ...wasser, id: 'u_apparaat', name: 'Kassa KAS-UTR-1',
+  roles: ['employee'], grants: ['hours.clock'], isDevice: true,
+} as User
+
+check('een kassa-account mag geen artikelen bewaren',
+  !artikel.apparaatMagArtikelen(apparaatAccount))
+
+check('met pos.manage erbij wel',
+  artikel.apparaatMagArtikelen({ ...apparaatAccount, grants: ['pos.manage'] } as User))
+
+check('en een kassa die met een managementaccount is ingericht ook',
+  artikel.apparaatMagArtikelen({ ...apparaatAccount, roles: ['management'] } as User))
+
+check('zonder account mag er niets', !artikel.apparaatMagArtikelen(null))
+
+/* ---- een artikel dat de leverancier uitzet ---- */
+
+const uitgezet: PosProduct = {
+  id: 'prod_uit', locationId: register.locationId, code: 'TS-9', name: 'Oud artikel',
+  groupName: 'Shop', unit: 'stuk', priceIncl: 3, vatPct: 21, kind: 'artikel',
+  inventoryItemId: 'inv_foto', sort: 10, active: false, updatedAt: Date.now(),
+}
+await db.products.put(uitgezet)
+
+check('een uitgezet artikel staat niet meer op het kassascherm',
+  (await db.products.toArray()).filter((x) => x.active && x.id === 'prod_uit').length === 0)
+
+/*
+ * Maar een bon die er al mee bezig was, moet gewoon af kunnen. Anders staat er
+ * een chauffeur bij de kassa met een fles in zijn hand die niet meer af te
+ * rekenen valt omdat het kantoor hem net uit het assortiment haalde.
+ */
+const bonMetUitgezet = await kassa.afrekenen({
+  register,
+  door: wasser,
+  regels: [{
+    id: 'm_uit', productId: uitgezet.id, name: uitgezet.name, kind: 'artikel',
+    qty: 1, priceIncl: 3, vatPct: 21, discountPct: 0,
+    inventoryItemId: 'inv_foto',
+  }],
+  betalingen: [{ method: 'contant', amount: 3, received: 5, changeGiven: 2 }],
+})
+
+check('en een bon die er al mee bezig was kan gewoon af',
+  bonMetUitgezet.bon.status === 'afgerekend')
+
+check('de voorraad is er ook echt op afgeboekt',
+  Number((await db.inventory.get('inv_foto'))?.stock) === 8,
+  String((await db.inventory.get('inv_foto'))?.stock))
+
+check('en er staat niets vast in de wachtrij',
+  (await db.outbox.toArray()).every((r) => (r.geweigerd ?? 0) === 0))
+
+await db.products.delete('prod_uit')
 
 /* ================================================================== */
 

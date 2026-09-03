@@ -93,7 +93,7 @@ new Promise((klaar) => {
 
     const t = db.transaction(
       ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves', 'products',
-       'timeEntries', 'outbox'],
+       'timeEntries', 'outbox', 'inventory'],
       'readwrite')
     for (const m of mensen) t.objectStore('users').put(m)
     t.objectStore('locations').put({
@@ -167,6 +167,43 @@ new Promise((klaar) => {
         locationId: 'loc_demo', active: true, updatedAt: nu, ...a,
       })
     }
+
+    /*
+     * Voorraadartikelen van Trucksupply, gekoppeld aan drie van die producten.
+     *
+     * Drie standen, want het verschil ertussen is waar het scherm voor is:
+     * genoeg leest je langs, onder het minimum valt op, en leeg houdt je
+     * tegen. Bij de winterfles staat met opzet geen eigen productfoto: die
+     * moet de foto van het artikel oppakken.
+     */
+    const artikelen_voorraad = [
+      { id: 'inv_zomer', name: 'Ruitenwisservloeistof zomer', unit: 'fles',
+        stock: 14, minStock: 6, sku: 'TS-1044' },
+      { id: 'inv_winter', name: 'Ruitenwisservloeistof winter', unit: 'fles',
+        stock: 2, minStock: 6, sku: 'TS-1045', image: nepfoto('#7a3fd8', '#4c208f') },
+      { id: 'inv_hand', name: 'Handreiniger', unit: 'fles',
+        stock: 0, minStock: 4, sku: 'TS-2010' },
+    ]
+    for (const v of artikelen_voorraad) {
+      t.objectStore('inventory').put({
+        locationId: 'loc_demo', pricePerUnit: 2.5, supplier: 'Trucksupply',
+        actief: true, bestelhoeveelheid: 12, updatedAt: nu, ...v,
+      })
+    }
+
+    // En de koppeling erop, zoals de serverfunctie hem legt.
+    t.objectStore('products').put({
+      ...artikelen[1], locationId: 'loc_demo', active: true, updatedAt: nu,
+      inventoryItemId: 'inv_zomer',
+    })
+    t.objectStore('products').put({
+      ...artikelen[2], locationId: 'loc_demo', active: true, updatedAt: nu,
+      inventoryItemId: 'inv_winter', image: undefined,
+    })
+    t.objectStore('products').put({
+      ...artikelen[3], locationId: 'loc_demo', active: true, updatedAt: nu,
+      inventoryItemId: 'inv_hand',
+    })
 
     // Een kluis met iets erin, anders is het kluisscherm een lege doos.
     t.objectStore('safes').put({
@@ -397,6 +434,13 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vas
   if (tab || nummer) {
     const bereik = await win.webContents.executeJavaScript(`
       (() => {
+        /*
+         * Staat er een venster open, dan hoort er niets achter raakbaar te
+         * zijn -- dat is precies wat een venster doet. Zonder deze regel riep
+         * de meting "NIET TE RAKEN" bij elke afdruk met een dialoog erop.
+         */
+        if (document.querySelector('.sluier')) return JSON.stringify([])
+
         const uit = []
         for (const knop of document.querySelectorAll('.balk .tab')) {
           const r = knop.getBoundingClientRect()

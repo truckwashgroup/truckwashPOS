@@ -6,7 +6,9 @@ import {
 import Afrekenen from './Afrekenen'
 import { Dialoog, Knop, Leeg, Pil, Regel, Veld } from '../components/ui'
 import { db } from '../lib/db'
-import { veiligeAfbeelding } from '../lib/afbeelding'
+import {
+  artikelFoto, artikelVoorraad, voorraadKaart, voorraadTekst,
+} from '../lib/artikel'
 import { money } from '../lib/format'
 import { regelTotaal } from '../lib/geld'
 import { useScanner } from '../lib/hardware/scanner'
@@ -16,9 +18,41 @@ import { useAuth } from '../store/useAuth'
 import { productBijBarcode, useMandje } from '../store/useMandje'
 import { toast } from '../store/useToasts'
 import type {
-  Company, MandjeRegel, PosProduct, PosRegister, WashJob,
+  InventoryItem, Company, MandjeRegel, PosProduct, PosRegister, WashJob,
 } from '../lib/types'
 import { SERVICES } from '../lib/types'
+
+/* ------------------------------------------------------------------ *
+ *  De voorraadstand op een tegel
+ *
+ *  Drie standen, en het verschil ertussen is wat het bruikbaar maakt:
+ *  genoeg (grijs, je leest er langs), onder het minimum (geel, er is al om
+ *  bijgevuld gevraagd) en leeg (rood, dit kun je niet verkopen).
+ * ------------------------------------------------------------------ */
+
+function Voorraadpil({
+  product, voorraad,
+}: {
+  product: PosProduct
+  voorraad: Map<string, InventoryItem>
+}) {
+  const stand = artikelVoorraad(product, voorraad)
+  if (!stand) return null
+
+  const soort = stand.leeg ? 'leeg' : stand.onderMinimum ? 'laag' : 'genoeg'
+
+  return (
+    <span
+      className={`voorraadpil ${soort}`}
+      title={stand.onderMinimum && !stand.leeg
+        ? `Onder het minimum van ${stand.minimum} ${stand.eenheid}. ` +
+          'Trucksupply heeft daar bericht van.'
+        : undefined}
+    >
+      {voorraadTekst(stand)}
+    </span>
+  )
+}
 
 /* ------------------------------------------------------------------ *
  *  Het kassascherm
@@ -61,6 +95,19 @@ export default function Kassa({ register }: { register: PosRegister }) {
 
   const geparkeerd = useLiveQuery(
     () => geparkeerdeBonnen(register.id), [register.id], [])
+
+  /*
+   * De voorraad van deze vestiging, als kaart op id.
+   *
+   * De kassa las deze tabel al -- verkoop boekt er af -- maar liet er niets
+   * van zien. Sinds Trucksupply de artikelen beheert staat de helft van wat
+   * de kassa over een artikel weet hier: de foto, de eenheid en de stand.
+   */
+  const voorraad = useLiveQuery(async () => {
+    const alles = await db.inventory.toArray()
+    return voorraadKaart(alles.filter((i) =>
+      !register.locationId || !i.locationId || i.locationId === register.locationId))
+  }, [register.locationId], new Map())
 
   const groepen = useMemo(() => {
     const namen = new Set(artikelen.map((p) => p.groupName || 'Overig'))
@@ -324,7 +371,7 @@ export default function Kassa({ register }: { register: PosRegister }) {
               wie nog geen enkele foto heeft toegevoegd, hoort er ook geen
               ruimte voor te zien.
             */
-            <div className={`tegels ${zichtbaar.some((p) => veiligeAfbeelding(p.image)) ? 'fotos' : ''}`}>
+            <div className={`tegels ${zichtbaar.some((p) => artikelFoto(p, voorraad)) ? 'fotos' : ''}`}>
               {zichtbaar.map((p) => (
                 <button
                   key={p.id}
@@ -338,8 +385,14 @@ export default function Kassa({ register }: { register: PosRegister }) {
                     de zomerruitenwisservloeistof in januari -- de naam is wat
                     het beslist, de foto is wat het vindt.
                   */}
-                  {veiligeAfbeelding(p.image) ? (
-                    <img className="tegelfoto" src={veiligeAfbeelding(p.image)!} alt="" />
+                  {/*
+                    De foto van het product zelf gaat voor; staat die er niet,
+                    dan die van het voorraadartikel. Zo staat de foto die
+                    Trucksupply toevoegde meteen op het scherm zonder dat
+                    iemand hem hier nog eens hoeft te zetten.
+                  */}
+                  {artikelFoto(p, voorraad) ? (
+                    <img className="tegelfoto" src={artikelFoto(p, voorraad)!} alt="" />
                   ) : (
                     <span className="tegelfoto-leeg" aria-hidden="true">
                       {p.name.trim().slice(0, 1).toUpperCase()}
@@ -360,7 +413,18 @@ export default function Kassa({ register }: { register: PosRegister }) {
                       </div>
                     )}
                   </div>
-                  <div className="prijs bedrag">{money(p.priceIncl)}</div>
+                  {/*
+                    De stand, als dit artikel aan de voorraad hangt.
+                    De balie hoeft er niets aan te doen -- Trucksupply krijgt
+                    automatisch bericht zodra iets onder het minimum zakt --
+                    maar wie iets niet kan verkopen hoort te kunnen zien
+                    waarom. Zonder dit is een leeg schap een verrassing bij
+                    het afrekenen.
+                  */}
+                  <div className="tegelvoet">
+                    <span className="prijs bedrag">{money(p.priceIncl)}</span>
+                    <Voorraadpil product={p} voorraad={voorraad} />
+                  </div>
                 </button>
               ))}
             </div>

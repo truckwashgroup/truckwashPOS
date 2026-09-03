@@ -1543,3 +1543,66 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   font-size: 12.5px;
   color: var(--text-3);
 }
+
+/* ------------------------------------------------------------------ *
+ *  De voorraadstand op een tegel
+ *
+ *  Drie standen, en het verschil ertussen is wat het bruikbaar maakt: genoeg
+ *  leest je langs, onder het minimum valt op, en leeg houdt je tegen. Zonder
+ *  dat verschil is het een derde getal op een tegel waar al twee getallen
+ *  staan.
+ * ------------------------------------------------------------------ */
+
+.tegelvoet {
+  display: flex;
+  align-items: baseline;
+  /* Wikkelen, zodat een lange naam plus een stand nooit de tegel uit loopt --
+     dat gebeurde op de eerste afdruk. */
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+}
+
+.tegelvoet .prijs { margin-right: auto; }
+
+.voorraadpil {
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: none;
+}
+
+.voorraadpil.genoeg { color: var(--text-3); }
+
+.voorraadpil.laag {
+  background: var(--tint-warn);
+  color: var(--text-warn);
+}
+
+.voorraadpil.leeg {
+  background: var(--tint-danger);
+  color: var(--text-danger);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat de leverancier beheert
+ * ------------------------------------------------------------------ */
+
+.leverancierdoos {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--line-info);
+  background: var(--tint-info);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.leverancierdoos svg { flex: none; margin-top: 2px; color: var(--text-info); }
+.leverancierdoos strong { color: var(--text); }

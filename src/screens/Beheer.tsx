@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import QRCode from 'qrcode'
 import {
   BadgeCheck, Banknote, Bell, Camera, CreditCard, Download, ImageOff, KeyRound,
-  Link2Off, Monitor, Package, Plus, Printer, RefreshCw, Settings, Trash2,
+  Link2Off, Monitor, Package, Plus, Printer, RefreshCw, Settings, Trash2, Truck,
 } from 'lucide-react'
 import {
   Dialoog, Fout, Knop, Leeg, Pil, Regel, Uitleg, Veld, Waarschuwing,
@@ -25,6 +25,9 @@ import {
 import {
   bytesKort, veiligeAfbeelding, verkleinAfbeelding,
 } from '../lib/afbeelding'
+import {
+  apparaatMagArtikelen, artikelFoto, uitDeVoorraad, voorraadKaart,
+} from '../lib/artikel'
 import type { PosDevice } from '../lib/types'
 import { enqueue, useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
@@ -123,7 +126,15 @@ export default function Beheer({ register }: { register: PosRegister }) {
  * ================================================================== */
 
 function Artikelen({ register }: { register: PosRegister }) {
+  const { apparaat } = useAuth()
   const [bewerken, setBewerken] = useState<PosProduct | null>(null)
+
+  /*
+   * Mag dit apparaat artikelen bewaren? Zie apparaatMagArtikelen: dat gaat
+   * over het account van de kassa en niet over wie ervoor staat, want dat is
+   * wat de database toetst.
+   */
+  const magBewaren = apparaatMagArtikelen(apparaat)
 
   const producten = useLiveQuery(async () => {
     const alles = await db.products.toArray()
@@ -154,13 +165,33 @@ function Artikelen({ register }: { register: PosRegister }) {
     <div className="kaart">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
         <h3 style={{ flex: 1 }}>Artikelen</h3>
-        <Knop maat="klein" onClick={nieuw}><Plus size={16} /> Nieuw</Knop>
+        {magBewaren && (
+          <Knop maat="klein" onClick={nieuw}><Plus size={16} /> Nieuw</Knop>
+        )}
       </div>
       <p className="uitleg">
         Prijzen zijn inclusief btw — dat is wat op het bord staat en wat de
         chauffeur betaalt. Hangt een artikel aan de voorraad, dan boekt elke
         verkoop het daar af, net zoals in de wasstraat-app.
       </p>
+
+      {!magBewaren && (
+        <div className="leverancierdoos" style={{ marginBottom: 14 }}>
+          <Truck size={17} />
+          <div>
+            <strong>Lezen kan, wijzigen niet.</strong> Deze kassa heeft een eigen
+            inlogaccount, en dat mag geen artikelen aanpassen — anders zijn de
+            inloggegevens van een tablet achter de balie genoeg om prijzen te
+            wijzigen.
+            <div style={{ marginTop: 6 }}>
+              Artikelen komen van Trucksupply; prijzen zet het kantoor in het
+              dashboard. Moet dat hier wel kunnen, dan hoort dat recht bij deze
+              kassa te worden gezet — en dat gaat via een migratie, niet via
+              een knop hier.
+            </div>
+          </div>
+        </div>
+      )}
 
       {producten.length === 0 ? (
         <Leeg tekst="Nog geen artikelen. Maak er een aan met de knop hierboven." />
@@ -184,6 +215,7 @@ function Artikelen({ register }: { register: PosRegister }) {
                 key={p.id}
                 onClick={() => setBewerken(p)}
                 style={{ cursor: 'pointer', opacity: p.active ? 1 : 0.5 }}
+                title={magBewaren ? undefined : 'Alleen lezen op deze kassa'}
               >
                 <td>
                   {/*
@@ -209,6 +241,7 @@ function Artikelen({ register }: { register: PosRegister }) {
       {bewerken && (
         <ArtikelBewerken
           product={bewerken}
+          magBewaren={magBewaren}
           onSluiten={() => setBewerken(null)}
         />
       )}
@@ -217,8 +250,8 @@ function Artikelen({ register }: { register: PosRegister }) {
 }
 
 function ArtikelBewerken({
-  product, onSluiten,
-}: { product: PosProduct; onSluiten: () => void }) {
+  product, magBewaren, onSluiten,
+}: { product: PosProduct; magBewaren: boolean; onSluiten: () => void }) {
   const [p, setP] = useState<PosProduct>(product)
   const [fout, setFout] = useState<string | null>(null)
 
@@ -226,6 +259,32 @@ function ArtikelBewerken({
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [])
 
   const zet = <K extends keyof PosProduct>(k: K, v: PosProduct[K]) => setP({ ...p, [k]: v })
+
+  /*
+   * Hangt dit artikel aan de voorraad, dan beheert Trucksupply het.
+   *
+   * Naam, eenheid en foto komen daarvandaan en worden bij elke levering
+   * bijgewerkt: wat je hier intikt is bij de volgende synchronisatie weg. Dat
+   * is geen fout maar het ziet er wel zo uit, dus staan die velden vast en
+   * staat erboven waarom.
+   *
+   * Prijs, groep, kleur en plaats op het scherm blijven wel van de kassa. Wat
+   * een chauffeur betaalt en waar de tegel staat, is kassawerk.
+   */
+  /*
+   * Twee redenen om een veld vast te zetten, en ze zeggen iets anders.
+   *
+   * vanLeverancier: dit veld komt van Trucksupply en wordt daar bijgewerkt.
+   * !magBewaren:    deze kassa mag helemaal niets aan artikelen wijzigen.
+   *
+   * Ze staan apart omdat de melding erboven verschilt: bij de eerste kun je
+   * de prijs nog zetten, bij de tweede niets.
+   */
+  const vanLeverancier = uitDeVoorraad(p)
+  const vast = !magBewaren
+  const artikel = p.inventoryItemId
+    ? voorraad.find((i) => i.id === p.inventoryItemId)
+    : undefined
 
   async function bewaar() {
     if (!p.name.trim()) { setFout('Een artikel heeft een naam nodig.'); return }
@@ -255,13 +314,43 @@ function ArtikelBewerken({
       wijd
       voet={
         <>
-          <Knop soort="stil" onClick={onSluiten}>Annuleren</Knop>
-          <Knop soort="hoofd" onClick={() => void bewaar()}>Opslaan</Knop>
+          <Knop soort="stil" onClick={onSluiten}>{magBewaren ? 'Annuleren' : 'Sluiten'}</Knop>
+          {magBewaren && (
+            <Knop soort="hoofd" onClick={() => void bewaar()}>Opslaan</Knop>
+          )}
         </>
       }
     >
+      {vanLeverancier && (
+        <div className="leverancierdoos" style={{ marginBottom: 16 }}>
+          <Truck size={17} />
+          <div>
+            <strong>Dit artikel wordt beheerd door Trucksupply.</strong> Naam,
+            eenheid en foto komen daarvandaan en worden bij een levering
+            bijgewerkt — wat je hier intikt zou bij de volgende synchronisatie
+            weer weg zijn, dus die velden staan vast.
+            <div style={{ marginTop: 6 }}>
+              Prijs, groep, kleur en de plaats op het scherm blijven van de
+              kassa: wat een chauffeur betaalt en waar de tegel staat, is
+              kassawerk.
+              {artikel?.sku && <> Artikelnummer bij de leverancier: <strong>{artikel.sku}</strong>.</>}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
-        <Veld label="Naam"><input value={p.name} onChange={(e) => zet('name', e.target.value)} /></Veld>
+        <Veld
+          label="Naam"
+          hint={vanLeverancier ? 'Komt van Trucksupply.' : undefined}
+        >
+          <input
+            value={p.name}
+            onChange={(e) => zet('name', e.target.value)}
+            readOnly={vanLeverancier || vast}
+            disabled={vanLeverancier || vast}
+          />
+        </Veld>
         <Veld label="Groep" hint="Bepaalt onder welk tabblad hij op het kassascherm staat.">
           <input value={p.groupName} onChange={(e) => zet('groupName', e.target.value)} />
         </Veld>
@@ -379,6 +468,13 @@ function ArtikelBewerken({
           foto={p.image}
           naam={p.name}
           onFoto={(f) => zet('image', f)}
+          /*
+           * Bij een artikel van de leverancier staat de foto vast, maar wel
+           * mét de foto van het artikel erin -- anders lijkt het alsof er geen
+           * foto is terwijl hij op het kassascherm gewoon staat.
+           */
+          vast={vanLeverancier}
+          vervanger={artikelFoto(p, voorraadKaart(voorraad)) ?? undefined}
         />
       </div>
 
@@ -434,8 +530,16 @@ function Artikelfoto({
 }
 
 function Fotoveld({
-  foto, naam, onFoto,
-}: { foto?: string; naam: string; onFoto: (f: string | undefined) => void }) {
+  foto, naam, onFoto, vast, vervanger,
+}: {
+  foto?: string
+  naam: string
+  onFoto: (f: string | undefined) => void
+  /** Vast: de foto komt van de leverancier en hoort hier niet gezet te worden. */
+  vast?: boolean
+  /** Wat er dan te zien is -- de foto van het voorraadartikel. */
+  vervanger?: string
+}) {
   const [bezig, setBezig] = useState(false)
   const [melding, setMelding] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
@@ -471,15 +575,19 @@ function Fotoveld({
       </h3>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <Artikelfoto foto={foto} naam={naam} maat={104} />
+        <Artikelfoto foto={foto ?? vervanger} naam={naam} maat={104} />
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <p className="uitleg" style={{ marginTop: 0 }}>
-            Komt op de tegel op het kassascherm. Aan een balie kiest iemand
-            sneller op een plaatje dan op een naam — en bij twee flessen van
-            hetzelfde merk is dat het verschil.
+            {vast
+              ? 'Deze foto komt van Trucksupply en staat zo op het kassascherm. ' +
+                'Hij wordt bij een levering bijgewerkt.'
+              : 'Komt op de tegel op het kassascherm. Aan een balie kiest iemand ' +
+                'sneller op een plaatje dan op een naam — en bij twee flessen van ' +
+                'hetzelfde merk is dat het verschil.'}
           </p>
 
+          {!vast && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {/*
               Een label om een verborgen invoerveld: een bestandsknop is in elke
@@ -509,14 +617,18 @@ function Fotoveld({
               </Knop>
             )}
           </div>
+          )}
 
           {melding && <div style={{ marginTop: 12 }}><Uitleg>{melding}</Uitleg></div>}
           {fout && <div style={{ marginTop: 12 }}><Fout>{fout}</Fout></div>}
 
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
-            De foto wordt op dit apparaat verkleind en gaat daarna in het artikel
-            mee. Zo staat hij ook op het scherm als het internet eruit ligt.
-          </div>
+          {!vast && (
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
+              De foto wordt op dit apparaat verkleind en gaat daarna in het
+              artikel mee. Zo staat hij ook op het scherm als het internet eruit
+              ligt.
+            </div>
+          )}
         </div>
       </div>
     </div>
