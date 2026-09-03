@@ -226,6 +226,16 @@ const AFDRUKKEN = [
   // Het muntenbord zelf: waar de kluis om draait.
   { naam: 'kluis-wisselgeld', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis', knop: 'Wisselgeld halen' },
   { naam: 'kluis-tellen', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Kluis', knop: 'Kluis tellen' },
+  /*
+   * De krapste maat waarop dit nog moet werken: een tablet in liggende
+   * stand, met een vastgelopen wachtrij erbij. Dat is de stand waarin de
+   * Beheer-tab niet meer in te drukken was.
+   */
+  { naam: 'balk-krap', thema: 'donker', breedte: 1024, hoogte: 700, zaad: true,
+    nummer: '014', tab: 'Klok', vast: true },
+  // En met een update die klaarstaat: een stip op Beheer, geen pil in de balk.
+  { naam: 'update-stip', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true,
+    nummer: '014', tab: 'Kassa', update: true },
   { naam: 'muziek', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Muziek' },
   { naam: 'beheer', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Beheer' },
   { naam: 'beheer-kassa', thema: 'donker', breedte: 1366, hoogte: 1000, zaad: true, nummer: '014',
@@ -244,7 +254,7 @@ speler.meldSchemaAan()
 
 const wacht = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vast }) {
+async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vast, update }) {
   const win = new BrowserWindow({
     width: breedte,
     height: hoogte,
@@ -359,6 +369,61 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vas
     `)
     if (!gelukt) console.log(`  (${naam}: knop "${label}" niet gevonden)`)
     await wacht(900)
+  }
+
+  /*
+   * Nakijken of elke tab te raken is.
+   *
+   * Dit is er omdat een afdruk daar niet over gaat: op een plaatje ziet een
+   * strook die je moet verschuiven er precies zo uit als een strook die past.
+   * Wat telt is of het middelpunt van de knop binnen het venster valt en of er
+   * niets bovenop ligt -- dat is wat een vinger doet.
+   */
+  /*
+   * Doen alsof er een update klaarstaat.
+   *
+   * Via hetzelfde bericht dat de echte updater stuurt (update:status), zodat de
+   * afdruk de weg volgt die het in het echt ook aflegt -- preload geeft het aan
+   * de store, de store zet de stip op Beheer. Een nagemaakte stip zou alleen
+   * bewijzen dat CSS werkt.
+   */
+  if (update) {
+    // Let op het veld: de store leest `state`, niet `kind`. Met `kind` kwam er
+    // geen stip en leek de stip stuk, terwijl het bericht niet aankwam.
+    win.webContents.send('update:status', { state: 'ready', version: '0.11.0' })
+    await wacht(500)
+  }
+
+  if (tab || nummer) {
+    const bereik = await win.webContents.executeJavaScript(`
+      (() => {
+        const uit = []
+        for (const knop of document.querySelectorAll('.balk .tab')) {
+          const r = knop.getBoundingClientRect()
+          const x = Math.round(r.left + r.width / 2)
+          const y = Math.round(r.top + r.height / 2)
+          const bovenop = document.elementFromPoint(x, y)
+          uit.push({
+            naam: (knop.textContent || '').trim(),
+            binnen: r.left >= 0 && r.right <= window.innerWidth
+                    && r.top >= 0 && r.bottom <= window.innerHeight,
+            raakbaar: Boolean(bovenop && knop.contains(bovenop)),
+          })
+        }
+        return JSON.stringify(uit)
+      })()
+    `).catch(() => null)
+
+    if (bereik) {
+      const tabs = JSON.parse(bereik)
+      const stuk = tabs.filter((t) => !t.binnen || !t.raakbaar)
+      if (tabs.length && stuk.length) {
+        console.log(`  (${naam}: NIET TE RAKEN -- ` +
+          stuk.map((t) => t.naam).join(', ') + ')')
+      } else if (tabs.length) {
+        console.log(`  (${naam}: alle ${tabs.length} tabbladen zijn te raken)`)
+      }
+    }
   }
 
   const plaat = await win.webContents.capturePage()

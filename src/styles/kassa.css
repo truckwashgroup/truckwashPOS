@@ -132,24 +132,49 @@ input, select, textarea { font: inherit; }
 .balk .rek { flex: 1; }
 
 /*
- * De tabbladen mogen krimpen en schuiven; de pillen rechts niet.
+ * De tabbladen wikkelen naar een tweede regel; ze schuiven niet.
  *
- * Met de pil voor vastgelopen werk erbij liep de balk op 1366 pixels over, en
- * dan viel de naam van wie er achter de kassa staat er rechts vanaf. Dat is de
- * verkeerde kant om te laten vallen: die naam komt op de bon. De tabbladen zijn
- * het brede deel en kunnen schuiven.
+ * Eerst konden ze schuiven, en dat loste het overlopen op zonder het probleem
+ * op te lossen: bij een volle balk stond Beheer buiten beeld en was hij niet
+ * in te drukken -- precies het scherm waar je een update installeert. Op een
+ * aanraakscherm is een strook die je eerst moet verschuiven geen tabblad meer.
+ *
+ * Wikkelen kost hoogte, maar alleen als het niet past. En elke tab blijft
+ * raakbaar, en dat is waar ze voor zijn.
  */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.tabs::-webkit-scrollbar { display: none; }
 .tab { flex: 0 0 auto; }
 .balk > .pil, .balk > button.pil { flex: 0 0 auto; }
+
+/*
+ * En op een smal scherm valt de tijd weg. Die staat ook op elke bon, en aan
+ * een kassa hangt meestal een klok aan de muur -- de tabbladen en de naam van
+ * wie er staat zijn belangrijker.
+ */
+@media (max-width: 1250px) {
+  .balk .tijd { display: none; }
+}
+
+/*
+ * De stip op een tabblad: er staat iets klaar achter deze tab.
+ *
+ * Klein en zonder tekst, want een update is nieuws en geen alarm. Wie hem ziet
+ * en niet weet wat hij betekent, tikt erop en leest het daar.
+ */
+.tabstip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  margin-left: 2px;
+  flex: none;
+}
 
 .tab {
   display: inline-flex;

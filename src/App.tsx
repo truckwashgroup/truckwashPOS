@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, Clock, CloudOff, Download, ListMusic, Lock, LogOut, Moon,
+  AlertTriangle, Clock, CloudOff, ListMusic, Lock, LogOut, Moon,
   Music, Receipt, RefreshCw, Settings, ShoppingCart, Sun, Wallet,
 } from 'lucide-react'
 import logo from './assets/kassa-icoon.png'
@@ -242,7 +242,21 @@ function Balk({
    * met een chauffeur die staat te wachten. Wie het recht heeft, ziet hem;
    * wie hem mist en denkt dat hij erbij hoort, weet bij wie hij moet zijn.
    */
-  const tabs: { id: Blad; label: string; icoon: JSX.Element }[] = [
+  /*
+   * Een update is nieuws, geen alarm.
+   *
+   * Hier stond een pil "versie 0.10.1 klaar" in de balk. Dat werkte precies
+   * één keer goed: zodra er ook iets anders bij kwam -- een vastgelopen
+   * wachtrij bijvoorbeeld -- was de balk vol en schoof de Beheer-tab buiten
+   * bereik. Je kon dus niet meer bij het scherm waar je die update installeert.
+   *
+   * Nu staat er een stip op Beheer, want daar zit het onder Versie. Dat is
+   * zichtbaar, kost geen breedte, en het zit niemand in de weg die iets anders
+   * aan het doen is.
+   */
+  const updateKlaar = updates.state === 'ready' || updates.state === 'available'
+
+  const tabs: { id: Blad; label: string; icoon: JSX.Element; stip?: boolean }[] = [
     { id: 'kassa', label: 'Kassa', icoon: <ShoppingCart size={16} /> },
     { id: 'klok', label: 'Klok', icoon: <Clock size={16} /> },
     { id: 'bonnen', label: 'Bonnen', icoon: <Receipt size={16} /> },
@@ -252,7 +266,7 @@ function Balk({
       : []),
     { id: 'muziek', label: 'Muziek', icoon: <Music size={16} /> },
     { id: 'speler', label: 'Speler', icoon: <ListMusic size={16} /> },
-    { id: 'beheer', label: 'Beheer', icoon: <Settings size={16} /> },
+    { id: 'beheer', label: 'Beheer', icoon: <Settings size={16} />, stip: updateKlaar },
   ]
 
   return (
@@ -272,20 +286,18 @@ function Balk({
               type="button"
               className={`tab ${blad === t.id ? 'aan' : ''}`}
               onClick={() => onBlad(t.id)}
+              title={t.stip
+                ? `Versie ${updates.newVersion ?? ''} staat klaar — onder Versie`
+                : undefined}
             >
               {t.icoon} {t.label}
+              {t.stip && <span className="tabstip" aria-label="update klaar" />}
             </button>
           ))}
         </div>
       )}
 
       <div className="rek" />
-
-      {updates.state === 'ready' && (
-        <Pil soort="merk">
-          <Download size={13} /> versie {updates.newVersion} klaar
-        </Pil>
-      )}
 
       {/*
         Vastgelopen werk krijgt een eigen pil, en die is rood.
@@ -341,7 +353,9 @@ function Balk({
         {actief === 'donker' ? <Moon size={13} /> : <Sun size={13} />}
       </button>
 
-      <span className="pil cijfers">{time(klok)}</span>
+      {/* Wijkt op een smal scherm; zie kassa.css. De tijd staat ook rechtsonder
+          op elke bon, en op de kassa hangt meestal een klok aan de muur. */}
+      <span className="pil cijfers tijd">{time(klok)}</span>
 
       {operator && (
         <button type="button" className="pil" onClick={onAfmelden} style={{ cursor: 'pointer' }}>

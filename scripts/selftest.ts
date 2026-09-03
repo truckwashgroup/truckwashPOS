@@ -58,8 +58,8 @@ const bijna = (a: number, b: number) => Math.abs(a - b) < 0.005
 const { db, uid } = await import('../src/lib/db')
 const geld = await import('../src/lib/geld')
 const {
-  badgeMaken, herkenBadge, herkenOpNummer, normaliseerNummer, nummerProbleem,
-  nummersNakijken,
+  badgeMaken, herkenBadge, herkenFout, herkenOpNummer, magOpKassa,
+  normaliseerNummer, nummerProbleem, nummersNakijken,
 } = await import('../src/lib/code')
 const klok = await import('../src/lib/klok')
 const kaarten = await import('../src/lib/kaarten')
@@ -956,6 +956,119 @@ check('een creditbon heet CREDITBON',
 const kaartGegevens = await bonGegevens(bon3.bon.id)
 check('de kaartcode staat op de bon waarop hij verkocht is',
   alsTekst(bonOpmaken(kaartGegevens!), 42).includes(kaart.code))
+
+/* ================================================================== *
+ *  19. Wie mag op welke kassa?
+ *
+ *  Wie op één vestiging staat, mag alleen de kassa van die vestiging. Wie
+ *  overal mag werken, mag elke kassa.
+ *
+ *  Dit stond er niet, en dat was niet zichtbaar: de kassa haalt het personeel
+ *  van zijn eigen vestiging op, dus in de praktijk stonden er meestal alleen
+ *  mensen in de cache die er hoorden. Maar de beveiligingsregels laten ook
+ *  dossiers zonder vestiging door -- die zijn "voor iedereen" -- en wie een
+ *  nummer intoetste dat in de cache stond, kwam erin. Iemand van Asten die op
+ *  de kassa in Rotterdam inklokt, komt met zijn uren op de verkeerde
+ *  vestiging terecht, en dat merkt niemand tot iemand ze naast elkaar legt.
+ * ================================================================== */
+
+console.log('\n19. Wie mag op welke kassa?')
+
+const asten = { locationId: 'loc_asten' }
+const rotterdam = 'loc_rtm'
+
+check('wie op deze vestiging staat, mag erop',
+  magOpKassa(asten, 'loc_asten').ok)
+
+const kassaElders = magOpKassa(asten, rotterdam)
+check('en op een andere kassa niet',
+  !kassaElders.ok && kassaElders.reden === 'andere-vestiging',
+  JSON.stringify(kassaElders))
+
+check('wie overal mag werken, mag elke kassa',
+  magOpKassa({ locationId: 'loc_hk', allLocations: true }, rotterdam).ok)
+
+check('en wie leiding heeft over deze vestiging ook',
+  magOpKassa({ locationId: 'loc_asten', manages: ['loc_rtm'] }, rotterdam).ok)
+
+/*
+ * Geen vestiging in het dossier is een eigen geval, met een eigen melding: bij
+ * de verkeerde vestiging staat iemand op de verkeerde plek, hier is het
+ * dossier niet af. Maar de deur gaat in beide gevallen dicht -- zou "geen
+ * vestiging" wel binnenkomen, dan is dat precies de opening die dit moet
+ * sluiten, want juist die dossiers staan bij elke kassa in de cache.
+ */
+const zonderVestiging = magOpKassa({}, rotterdam)
+check('zonder vestiging in het dossier komt niemand erin',
+  !zonderVestiging.ok && zonderVestiging.reden === 'geen-vestiging', JSON.stringify(zonderVestiging))
+
+/*
+ * En een kassa zonder vestiging toetst niets. Een kassa op slot zetten om
+ * ontbrekende gegevens is erger dan het gat dat het dicht.
+ */
+check('een kassa zonder vestiging laat iedereen door',
+  magOpKassa(asten, undefined).ok && magOpKassa({}, '').ok)
+
+/* ---- en dan door de echte deur ---- */
+
+const astenLocatie = 'loc_asten'
+await db.locations.put({
+  id: astenLocatie, code: 'TW-AST', name: 'Asten', kind: 'vestiging',
+  active: true, updatedAt: Date.now(),
+} as any)
+
+const vanAsten: User = {
+  ...wasser,
+  id: 'u_asten', email: 'asten@truckwash1group.nl', name: 'Aad van Asten',
+  personnelNumber: 'TW-777', locationId: astenLocatie, allLocations: false,
+  manages: [],
+}
+await db.users.put(vanAsten)
+
+const opEigenKassa = await herkenOpNummer('777', astenLocatie)
+check('op zijn eigen kassa komt hij erin',
+  opEigenKassa.ok && opEigenKassa.user.id === 'u_asten')
+
+const opAndereKassa = await herkenOpNummer('777', register.locationId)
+check('op de kassa van een andere vestiging niet',
+  !opAndereKassa.ok && opAndereKassa.reden === 'andere-vestiging',
+  JSON.stringify(opAndereKassa))
+
+/*
+ * De melding is het halve werk. "Je mag hier niet" laat iemand het nog drie
+ * keer proberen; met zijn naam en zijn vestiging erin weet hij meteen wat er
+ * aan de hand is -- en als het niet klopt, weet hij ook wat er in het
+ * dashboard verkeerd staat.
+ */
+const melding = herkenFout(opAndereKassa as any)
+check('en de melding noemt hem bij naam', melding.includes('Aad van Asten'), melding)
+check('en zegt waar hij dan wel hoort', melding.includes('Asten'), melding)
+check('en wat eraan te doen valt', melding.includes('kantoor'), melding)
+
+/* ---- de badge is dezelfde deur ---- */
+
+// badgeMaken geeft de code zelf terug, geen rij.
+const astenBadge = await badgeMaken(vanAsten.id)
+const badgeElders = await herkenBadge(astenBadge, register.locationId)
+check('een badge van een andere vestiging komt er ook niet door',
+  !badgeElders.ok && badgeElders.reden === 'andere-vestiging',
+  JSON.stringify(badgeElders))
+
+const badgeEigen = await herkenBadge(astenBadge, astenLocatie)
+check('en op zijn eigen kassa wel', badgeEigen.ok)
+
+/* ---- iemand die overal mag, komt overal door ---- */
+
+await db.users.put({ ...vanAsten, id: 'u_overal', name: 'Wendy Overal',
+  personnelNumber: 'TW-778', allLocations: true } as User)
+
+const overalHier = await herkenOpNummer('778', register.locationId)
+check('wie overal mag werken komt er ook hier in', overalHier.ok)
+
+await db.users.delete('u_overal')
+await db.users.delete('u_asten')
+
+/* ================================================================== */
 
 /* ================================================================== *
  *  12. Briefjes en munten

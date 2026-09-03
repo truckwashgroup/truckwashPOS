@@ -114,10 +114,121 @@ export type HerkenResultaat =
   | {
       ok: false
       reden: 'onbekend' | 'geblokkeerd' | 'inactief' | 'dubbel' | 'geen-nummer'
+             | 'andere-vestiging' | 'geen-vestiging'
       wachtMs?: number
       /** Bij 'dubbel': wie er allemaal op dit nummer staan. */
       namen?: string[]
+      /** Bij 'andere-vestiging': waar deze persoon dan wel hoort. */
+      vestiging?: string
+      /** En hoe hij heet, zodat de melding niet over een nummer gaat. */
+      naam?: string
     }
+
+/**
+ * Wat er op het scherm komt als het aanmelden niet lukte.
+ *
+ * Op één plek, want het stond op twee -- in useAuth en in het klokscherm -- en
+ * die twee waren al uit elkaar gelopen. Een melding die op de ene deur anders
+ * luidt dan op de andere is een melding waar niemand op vertrouwt.
+ */
+export function herkenFout(uitslag: Extract<HerkenResultaat, { ok: false }>): string {
+  switch (uitslag.reden) {
+    case 'geblokkeerd':
+      return `Te vaak misgetoetst. Probeer het over ${
+        Math.ceil((uitslag.wachtMs ?? 0) / 1000)} seconden weer.`
+
+    case 'inactief':
+      return 'Deze medewerker staat niet meer op de loonlijst.'
+
+    case 'dubbel':
+      // Geen fout van wie er staat, dus zeggen we wat er aan de hand is en
+      // waar het rechtgezet wordt.
+      return `Dit nummer staat bij meer dan één medewerker (${
+        (uitslag.namen ?? []).join(', ')}). Laat het in het dashboard onder ` +
+        'Personeel rechtzetten; zolang het dubbel staat, komt de bon op de ' +
+        'verkeerde naam.'
+
+    case 'andere-vestiging':
+      /*
+       * Met naam en vestiging erbij. "Je mag hier niet" laat iemand het nog
+       * drie keer proberen; "Ali Yildiz staat op Asten" is meteen duidelijk --
+       * en als dat niet klopt, weet hij ook meteen wat er in het dashboard
+       * verkeerd staat.
+       */
+      return `${uitslag.naam ?? 'Deze medewerker'} staat op ${
+        uitslag.vestiging ?? 'een andere vestiging'} en kan daar aanmelden. ` +
+        'Moet hij op meer vestigingen kunnen werken, dan zet het kantoor dat ' +
+        'in zijn dossier.'
+
+    case 'geen-vestiging':
+      return `${uitslag.naam ?? 'Deze medewerker'} heeft geen vestiging in zijn ` +
+        'dossier, dus weet de kassa niet of hij hier hoort. Dat zet het kantoor ' +
+        'in het dashboard onder Personeel.'
+
+    case 'geen-nummer':
+      return 'Er staat geen personeelsnummer in dit dossier.'
+
+    default:
+      return 'Dat personeelsnummer is niet bekend op deze vestiging.'
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Op welke kassa mag iemand?
+ *
+ *  Wie op één vestiging staat, mag alleen de kassa van die vestiging. Wie
+ *  overal mag werken, mag elke kassa.
+ *
+ *  Waarom dat er hoort te staan en niet vanzelf goed gaat: de kassa haalt het
+ *  personeel van zijn eigen vestiging op, maar de beveiligingsregels laten ook
+ *  dossiers zonder vestiging door -- die zijn "voor iedereen". En wie een
+ *  nummer intoetst dat in die cache staat, kwam erin. Iemand van Asten die op
+ *  de kassa in Rotterdam staat, klokt daar in, verkoopt daar, en zijn uren
+ *  komen op de verkeerde vestiging terecht. Dat merkt niemand tot iemand de
+ *  uren per vestiging naast elkaar legt.
+ *
+ *  Vier manieren waarop het mag, en die eerste is er alleen voor de zekerheid:
+ *
+ *   1. de kassa hangt (nog) niet aan een vestiging -- dan is er niets om aan
+ *      te toetsen, en een kassa op slot zetten om ontbrekende gegevens is
+ *      erger dan het gat;
+ *   2. deze persoon mag overal werken (allLocations);
+ *   3. hij staat op deze vestiging;
+ *   4. hij heeft leiding over deze vestiging (manages).
+ * ------------------------------------------------------------------ */
+
+export type KassaToegang =
+  | { ok: true }
+  | { ok: false; reden: 'andere-vestiging' | 'geen-vestiging' }
+
+export function magOpKassa(
+  user: Pick<User, 'locationId' | 'manages' | 'allLocations'>,
+  kassaLocatie: string | undefined | null,
+): KassaToegang {
+  if (!kassaLocatie) return { ok: true }
+  if (user.allLocations) return { ok: true }
+  if (user.locationId && user.locationId === kassaLocatie) return { ok: true }
+  if ((user.manages ?? []).includes(kassaLocatie)) return { ok: true }
+
+  /*
+   * Geen vestiging in het dossier is iets anders dan de verkeerde vestiging,
+   * en het hoort ook een andere melding te geven. Bij de verkeerde vestiging
+   * staat iemand op de verkeerde plek; hier is het dossier niet af, en dat is
+   * in het dashboard in tien seconden rechtgezet.
+   *
+   * Beide keren gaat de deur dicht. Zou "geen vestiging" wél binnenkomen, dan
+   * is dat precies de opening die dit moet sluiten -- want de kassa heeft die
+   * dossiers in zijn cache staan.
+   */
+  return { ok: false, reden: user.locationId ? 'andere-vestiging' : 'geen-vestiging' }
+}
+
+/** De naam van een vestiging, voor de melding. Valt terug op de code. */
+export async function vestigingsNaam(id?: string): Promise<string | undefined> {
+  if (!id) return undefined
+  const l = await db.locations.get(id)
+  return l?.name || l?.code || undefined
+}
 
 /**
  * Wie hoort bij dit nummer?
@@ -129,7 +240,14 @@ export type HerkenResultaat =
  * van de twee bedoeld is zou betekenen dat de bon en de urenstaat op de
  * verkeerde naam komen, en dat merkt niemand tot het over geld gaat.
  */
-export async function herkenOpNummer(ingetoetst: string): Promise<HerkenResultaat> {
+export async function herkenOpNummer(
+  ingetoetst: string,
+  /**
+   * De vestiging van deze kassa. Weggelaten = niet toetsen; dat is er voor de
+   * zelftest en voor een kassa die nog geen vestiging heeft.
+   */
+  kassaLocatie?: string,
+): Promise<HerkenResultaat> {
   const wacht = await wachttijd()
   if (wacht > 0) return { ok: false, reden: 'geblokkeerd', wachtMs: wacht }
 
@@ -160,17 +278,54 @@ export async function herkenOpNummer(ingetoetst: string): Promise<HerkenResultaa
     }
   }
 
+  /*
+   * Pas hier de vestiging toetsen, en niet bij het zoeken op nummer.
+   *
+   * Zou het nummer van iemand van een andere vestiging als "onbekend" gelden,
+   * dan krijgt hij "dat nummer is niet bekend" te zien -- en dan staat hij het
+   * opnieuw in te toetsen omdat hij denkt dat hij zich verkeken heeft. Nu
+   * krijgt hij te horen wat er werkelijk aan de hand is.
+   *
+   * De rem op misgetoetste nummers blijft hier ook buiten: het nummer is juist
+   * wél goed.
+   */
+  const toegang = magOpKassa(actief[0], kassaLocatie)
+  if (!toegang.ok) {
+    await gelukt()
+    return {
+      ok: false,
+      reden: toegang.reden,
+      naam: actief[0].name,
+      vestiging: await vestigingsNaam(actief[0].locationId),
+    }
+  }
+
   await gelukt()
   return { ok: true, user: actief[0] }
 }
 
 /** Wie hoort bij deze gescande badge? */
-export async function herkenBadge(token: string): Promise<HerkenResultaat> {
+export async function herkenBadge(
+  token: string,
+  kassaLocatie?: string,
+): Promise<HerkenResultaat> {
   const pin = await db.pins.where('badgeToken').equals(token.trim()).first()
   if (!pin) return { ok: false, reden: 'onbekend' }
   const user = await db.users.get(pin.userId)
   if (!user) return { ok: false, reden: 'onbekend' }
   if (!user.active) return { ok: false, reden: 'inactief' }
+
+  // Een badge is dezelfde deur als een nummer, dus dezelfde poort ervoor.
+  const toegang = magOpKassa(user, kassaLocatie)
+  if (!toegang.ok) {
+    return {
+      ok: false,
+      reden: toegang.reden,
+      naam: user.name,
+      vestiging: await vestigingsNaam(user.locationId),
+    }
+  }
+
   await gelukt()
   return { ok: true, user }
 }

@@ -79,6 +79,19 @@ export async function kiesRegister(registerId: string): Promise<{ waarschuwing?:
   return { waarschuwing }
 }
 
+/**
+ * De vestiging van deze kassa.
+ *
+ *  Uit het register en niet uit het account waarmee het apparaat is ingelogd.
+ *  Dat scheelt een fout die niemand zou zien: bij een kassa die met een
+ *  koppelcode is gekoppeld zijn die twee gelijk, maar bij een kassa die nog met
+ *  een medewerkersaccount is ingericht is het de vestiging van díe medewerker
+ *  -- en dan zou de kassa de verkeerde vestiging afdwingen.
+ */
+export async function kassaLocatie(): Promise<string | undefined> {
+  return (await huidigeRegister())?.locationId
+}
+
 export async function bewaarRegister(register: PosRegister): Promise<PosRegister> {
   const rij = { ...register, updatedAt: Date.now() }
   await db.registers.put(rij)

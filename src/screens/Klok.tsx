@@ -5,7 +5,10 @@ import Toetsenblok from '../components/Toetsenblok'
 import VastInDeWachtrij from '../components/VastInDeWachtrij'
 import { Dialoog, Fout, Knop, Leeg, Pil, Uitleg, Veld } from '../components/ui'
 import { duration, time } from '../lib/format'
-import { herkenBadge, herkenOpNummer, normaliseerNummer, nummerProbleem } from '../lib/code'
+import {
+  herkenBadge, herkenFout, herkenOpNummer, normaliseerNummer, nummerProbleem,
+} from '../lib/code'
+import { kassaLocatie } from '../lib/kassa'
 import { useScanner } from '../lib/hardware/scanner'
 import {
   aanwezig, dienstCorrigeren, inklokken, openDienst, uitklokken, vandaagGewerkt,
@@ -47,9 +50,16 @@ export default function Klok() {
   /* ---- badge: scannen klokt in of uit ---- */
   useScanner(async (gescand) => {
     if (!gescand.startsWith('TWB-')) return
-    const uitslag = await herkenBadge(gescand)
+    const uitslag = await herkenBadge(gescand, await kassaLocatie())
     if (!uitslag.ok) {
-      setFout('Deze badge is niet bekend.')
+      /*
+       * Ook hier de echte reden, en niet "onbekende badge". Iemand van een
+       * andere vestiging heeft een badge die wél bestaat -- die scant hij dan
+       * nog drie keer omdat hij denkt dat de scanner het niet pakt.
+       */
+      setFout(uitslag.reden === 'onbekend'
+        ? 'Deze badge is niet bekend.'
+        : herkenFout(uitslag))
       return
     }
     await wissel(uitslag.user)
@@ -84,21 +94,11 @@ export default function Klok() {
     if (probleem) { setFout(probleem); return }
 
     setBezig(true)
-    const uitslag = await herkenOpNummer(nummer)
+    const uitslag = await herkenOpNummer(nummer, await kassaLocatie())
     setBezig(false)
 
     if (!uitslag.ok) {
-      setFout(
-        uitslag.reden === 'geblokkeerd'
-          ? `Te vaak misgetoetst. Probeer het over ${
-              Math.ceil((uitslag.wachtMs ?? 0) / 1000)} seconden weer.`
-          : uitslag.reden === 'inactief'
-            ? 'Deze medewerker staat niet meer op de loonlijst.'
-            : uitslag.reden === 'dubbel'
-              ? `Dit nummer staat bij meer dan één medewerker (${
-                  (uitslag.namen ?? []).join(', ')}). Laat het in het dashboard rechtzetten.`
-              : 'Dat personeelsnummer is niet bekend op deze vestiging.',
-      )
+      setFout(herkenFout(uitslag))
       setNummer('')
       return
     }

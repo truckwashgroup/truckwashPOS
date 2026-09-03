@@ -59,6 +59,32 @@ Kom je nergens in (geen nummer, of een dubbel nummer), dan is er
 **"Aanmelden met het wachtwoord van dit apparaat"** onderaan het aanmeldscherm.
 Dat werkt ook offline.
 
+### Alleen op je eigen vestiging
+
+Wie op één vestiging staat, meldt zich alleen aan op de kassa van die
+vestiging. Wie overal mag werken (`allLocations` in het dossier), mag elke
+kassa. En wie leiding heeft over een vestiging, mag daar ook.
+
+Dat gold niet vanzelf. De kassa haalt het personeel van zijn eigen vestiging
+op, maar de beveiligingsregels laten ook dossiers **zonder** vestiging door —
+die zijn "voor iedereen" — en wie een nummer intoetste dat in de cache stond,
+kwam erin. Iemand van Asten die op de kassa in Rotterdam inklokt, komt met zijn
+uren op de verkeerde vestiging terecht, en dat merkt niemand tot iemand ze
+naast elkaar legt. Met één vestiging viel dat niet op; met achttien wel.
+
+De melding noemt naam en vestiging: *"Aad van Asten staat op Asten en kan daar
+aanmelden."* Niet "je mag hier niet" — daar probeert iemand het nog drie keer
+mee, en als het niet klopt weet hij ook niet wat er in het dashboard verkeerd
+staat.
+
+> **Geen vestiging in het dossier betekent geen toegang.** Dat is streng en met
+> opzet: juist die dossiers staan bij élke kassa in de cache, dus dat was de
+> opening. In het dashboard is het onder Personeel in tien seconden rechtgezet,
+> en de kassa zegt dat er ook zo bij.
+
+Een kassa die zelf geen vestiging heeft, toetst niets — een kassa op slot
+zetten om ontbrekende gegevens is erger dan het gat dat het dicht.
+
 ### Badges
 
 Een badge is een QR-code op een kaartje of sleutelhanger; scannen is sneller dan
@@ -423,6 +449,21 @@ De sleutel hoort **niet** in de kassa-instellingen (die reizen mee naar elke
 kassa) maar in de lokale instellingen van dat ene apparaat.
 
 ---
+
+### Als er een update klaarstaat
+
+Een stip op het tabblad **Beheer**, want daar staat hij onder Versie. Verder
+niets: een update is nieuws en geen alarm.
+
+Er stond eerder een pil "versie 0.10.1 klaar" in de balk bovenaan. Dat werkte
+precies één keer goed — zodra er iets bij kwam, bijvoorbeeld een vastgelopen
+wachtrij, was de balk vol en schoof Beheer buiten bereik. Je kon dan dus niet
+meer bij het scherm waar je die update installeert.
+
+De tabbladen wikkelen nu naar een tweede regel in plaats van te schuiven. Dat
+kost hoogte, maar alleen als het niet past, en elke tab blijft raakbaar — op
+een aanraakscherm is een strook die je eerst moet verschuiven geen tabblad
+meer. Op een smal scherm valt de tijd weg; die staat ook op elke bon.
 
 ## Hoe het offline werkt
 

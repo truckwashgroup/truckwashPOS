@@ -4,7 +4,8 @@ import { db, getMeta, setMeta } from '../lib/db'
 import { rememberOfflineLogin, verifyOfflineLogin } from '../lib/offlineAuth'
 import { storageGet, storageRemove, storageSet } from '../lib/storage'
 import { LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
-import { herkenBadge, herkenOpNummer } from '../lib/code'
+import { herkenBadge, herkenFout, herkenOpNummer } from '../lib/code'
+import { kassaLocatie } from '../lib/kassa'
 import {
   bewaardeInlog, inlogBewaren, koppelMetCode, wisApparaat,
   type KoppelUitslag,
@@ -293,41 +294,30 @@ export const useAuth = create<AuthStore>((set, get) => ({
   /* ---------------- de medewerker ---------------- */
 
   meldAan: async (nummer) => {
-    const uitslag = await herkenOpNummer(nummer)
+    /*
+     * De vestiging van de kassa gaat mee. Wie op één vestiging staat, mag
+     * alleen de kassa van die vestiging -- zie magOpKassa in code.ts voor
+     * waarom dat er hoort te staan.
+     */
+    const uitslag = await herkenOpNummer(nummer, await kassaLocatie())
     if (uitslag.ok) {
       set({ operator: uitslag.user, laatsteActie: Date.now() })
       return { ok: true }
     }
-
-    const fout =
-      uitslag.reden === 'geblokkeerd'
-        ? `Te vaak misgetoetst. Probeer het over ${
-            Math.ceil((uitslag.wachtMs ?? 0) / 1000)} seconden weer.`
-        : uitslag.reden === 'inactief'
-          ? 'Deze medewerker staat niet meer op de loonlijst.'
-          : uitslag.reden === 'dubbel'
-            // Dit is geen fout van wie er staat, dus zeggen we wat er aan de
-            // hand is en waar het rechtgezet wordt.
-            ? `Dit nummer staat bij meer dan één medewerker (${
-                (uitslag.namen ?? []).join(', ')}). Laat het in het dashboard ` +
-              'onder Personeel rechtzetten; zolang het dubbel staat, komt de ' +
-              'bon op de verkeerde naam.'
-            : 'Dat personeelsnummer is niet bekend op deze vestiging.'
-
-    return { ok: false, fout }
+    return { ok: false, fout: herkenFout(uitslag) }
   },
 
   meldAanMetBadge: async (token) => {
-    const uitslag = await herkenBadge(token)
+    const uitslag = await herkenBadge(token, await kassaLocatie())
     if (uitslag.ok) {
       set({ operator: uitslag.user, laatsteActie: Date.now() })
       return { ok: true }
     }
     return {
       ok: false,
-      fout: uitslag.reden === 'inactief'
-        ? 'Deze medewerker staat niet meer op de loonlijst.'
-        : 'Deze badge is niet bekend.',
+      fout: uitslag.reden === 'onbekend'
+        ? 'Deze badge is niet bekend.'
+        : herkenFout(uitslag),
     }
   },
 
