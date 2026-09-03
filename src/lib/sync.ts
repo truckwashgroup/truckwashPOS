@@ -113,12 +113,72 @@ export const useSync = create<SyncStore>((set, get) => ({
  *  Outbox
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  Tabellen die de kassa leest en nooit schrijft
+ *
+ *  Artikelen en prijzen komen uit het dashboard. De kassa haalt ze op, houdt
+ *  ze in zijn cache zodat hij ook zonder internet kan verkopen, en stuurt er
+ *  nooit iets terug.
+ *
+ *  Waarom dat hier staat en niet alleen in het scherm: een wijziging die per
+ *  ongeluk in de wachtrij belandt, wordt door de database geweigerd
+ *  (pos_products vraagt mag_kassa_beheren, en dat heeft een kassa-account
+ *  niet). Zo'n rij verdwijnt niet -- sinds 0.10.0 blijft hij staan en komt er
+ *  een melding aan de balie over werk dat vastzit. Maar dat werk komt er nooit
+ *  door, dus is die melding een alarm zonder uitweg.
+ *
+ *  Er is nog een tweede reden, en die is erger. De kassa heeft een kopie van
+ *  elk artikel. Zou hij die terugsturen, dan overschrijft een kassa die een dag
+ *  uit heeft gestaan de prijs die het kantoor gisteren heeft gezet -- laatste
+ *  schrijver wint. Eén tablet in een hoek kan zo een prijswijziging ongedaan
+ *  maken zonder dat iemand het ziet.
+ * ------------------------------------------------------------------ */
+
+export const NOOIT_STUREN: EntityName[] = ['products']
+
+/**
+ * Wat er nog in de wachtrij staat voor een tabel die de kassa niet meer
+ * schrijft, gaat eruit.
+ *
+ * Dat is met opzet een uitzondering op "wij gooien niets weg". Deze rijen
+ * zouden anders voor altijd blijven staan: de server weigert ze, de nieuwe
+ * regels hierboven gooien ze niet weg wegens rechten, en dus staat er een
+ * melding aan de balie die nooit meer overgaat. Ze komen wel in het logboek,
+ * want stil opruimen is hoe je later niet meer weet wat er gebeurd is.
+ */
+export async function ruimNietMeerVerstuurbaarOp(): Promise<number> {
+  const rijen = await db.outbox.toArray()
+  const eruit = rijen.filter((r) => NOOIT_STUREN.includes(r.entity))
+  if (!eruit.length) return 0
+
+  await db.outbox.bulkDelete(eruit.map((r) => r.id!))
+  for (const r of eruit) {
+    logLive('waarschuwing',
+      `${r.entity}/${r.recordId} uit de wachtrij gehaald: die tabel wordt ` +
+      'vanaf nu in het dashboard beheerd en door de kassa alleen gelezen.')
+  }
+  await useSync.getState().refreshPending()
+  return eruit.length
+}
+
 export async function enqueue(
   entity: EntityName,
   op: SyncOp,
   recordId: string,
   payload: unknown,
 ) {
+  /*
+   * Wat de kassa niet schrijft, komt ook niet in de wachtrij. Hier en niet
+   * alleen in het scherm: één plek die het tegenhoudt is er één die niemand
+   * kan vergeten.
+   */
+  if (NOOIT_STUREN.includes(entity)) {
+    logLive('waarschuwing',
+      `${entity}/${recordId} is niet verstuurd: die tabel wordt in het ` +
+      'dashboard beheerd.')
+    return
+  }
+
   // Nieuwere wijziging op hetzelfde record vervangt de oude (laatste wint).
   const existing = await db.outbox.where('recordId').equals(recordId).toArray()
   const stale = existing.filter((r) => r.entity === entity).map((r) => r.id!)
@@ -148,7 +208,9 @@ export async function enqueue(
  * Daarom leggen we hem hier expliciet vast: ouders eerst.
  */
 export const PUSH_ORDER: EntityName[] = [
-  'registers', 'products',
+  // 'products' staat hier niet meer: artikelen komen uit het dashboard en
+  // gaan nooit terug. Zie NOOIT_STUREN.
+  'registers',
   // De wasopdracht gaat vóór de bon: verkoop je een wasbeurt aan de balie,
   // dan maakt de kassa er een opdracht voor de wasstraat bij.
   'washJobs',
@@ -395,6 +457,9 @@ export function startSyncEngine() {
   void (async () => {
     const last = await getMeta<number | null>(LAST_SYNC, null)
     useSync.setState({ lastSyncAt: last })
+    // Eerst opruimen, dan tellen: anders staat er bij het opstarten kort een
+    // melding over werk dat vastzit en meteen daarna niet meer.
+    await ruimNietMeerVerstuurbaarOp()
     await useSync.getState().refreshPending()
     await useSync.getState().sync({ silent: true })
   })()

@@ -9,7 +9,7 @@ import {
   Dialoog, Fout, Knop, Leeg, Pil, Regel, Uitleg, Veld, Waarschuwing,
 } from '../components/ui'
 import { db, uid } from '../lib/db'
-import { dateTime, money } from '../lib/format'
+import { dateTime, money, relative } from '../lib/format'
 import { badgeIntrekken, badgeMaken, nummersNakijken } from '../lib/code'
 import { kanAfdrukken, openLade, proefBon } from '../lib/hardware/printer'
 import { TERMINAL_LABELS } from '../lib/hardware/terminal'
@@ -26,7 +26,7 @@ import {
   bytesKort, veiligeAfbeelding, verkleinAfbeelding,
 } from '../lib/afbeelding'
 import {
-  apparaatMagArtikelen, artikelFoto, uitDeVoorraad, voorraadKaart,
+  apparaatMagBeheren, artikelFoto, artikelVoorraad, voorraadKaart,
 } from '../lib/artikel'
 import type { PosDevice } from '../lib/types'
 import { enqueue, useSync } from '../lib/sync'
@@ -125,16 +125,37 @@ export default function Beheer({ register }: { register: PosRegister }) {
  *  Artikelen
  * ================================================================== */
 
-function Artikelen({ register }: { register: PosRegister }) {
-  const { apparaat } = useAuth()
-  const [bewerken, setBewerken] = useState<PosProduct | null>(null)
+/* ================================================================== *
+ *  Artikelen
+ *
+ *  Alleen lezen, en dat is een keuze en geen beperking waar we tegenaan
+ *  liepen.
+ *
+ *  Artikelen, prijzen en foto's worden in het dashboard beheerd -- door
+ *  Trucksupply voor wat zij leveren, door het kantoor voor de rest. De kassa
+ *  haalt ze op en houdt ze in zijn cache, zodat hij ook zonder internet kan
+ *  verkopen met de juiste prijs en de juiste foto.
+ *
+ *  Waarom er niets meer te wijzigen valt, ook niet door het management:
+ *
+ *  1. De database staat het een kassa-account niet toe (pos_products vraagt
+ *     mag_kassa_beheren). Een scherm dat invoer aanneemt die de server weigert,
+ *     is een scherm dat liegt.
+ *  2. En het is gevaarlijker dan alleen vergeefs. De kassa heeft een kopie van
+ *     elk artikel. Mocht hij die terugsturen, dan overschrijft een kassa die
+ *     een dag uit heeft gestaan de prijs die gisteren is gezet. Eén tablet in
+ *     een hoek kan zo een prijswijziging ongedaan maken.
+ *
+ *  Wat dit scherm wél doet: laten zien wat er in de cache staat, met de foto
+ *  erbij, zodat aan de balie na te kijken is wat een artikel kost en of het
+ *  compleet is opgehaald.
+ * ================================================================== */
 
-  /*
-   * Mag dit apparaat artikelen bewaren? Zie apparaatMagArtikelen: dat gaat
-   * over het account van de kassa en niet over wie ervoor staat, want dat is
-   * wat de database toetst.
-   */
-  const magBewaren = apparaatMagArtikelen(apparaat)
+function Artikelen({ register }: { register: PosRegister }) {
+  const [bekijken, setBekijken] = useState<PosProduct | null>(null)
+
+  const voorraadItems = useLiveQuery(
+    () => db.inventory.toArray(), [], [] as InventoryItem[])
 
   const producten = useLiveQuery(async () => {
     const alles = await db.products.toArray()
@@ -144,57 +165,36 @@ function Artikelen({ register }: { register: PosRegister }) {
       a.name.localeCompare(b.name, 'nl'))
   }, [], [] as PosProduct[])
 
-  function nieuw() {
-    setBewerken({
-      id: uid('art'),
-      locationId: register.locationId,
-      code: '',
-      name: '',
-      groupName: 'Shop',
-      unit: 'stuk',
-      priceIncl: 0,
-      vatPct: 21,
-      kind: 'artikel',
-      sort: 100,
-      active: true,
-      updatedAt: Date.now(),
-    })
-  }
-
   return (
     <div className="kaart">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
         <h3 style={{ flex: 1 }}>Artikelen</h3>
-        {magBewaren && (
-          <Knop maat="klein" onClick={nieuw}><Plus size={16} /> Nieuw</Knop>
-        )}
+        <Cachestand register={register} />
       </div>
+      <div className="leverancierdoos" style={{ marginBottom: 14 }}>
+        <Truck size={17} />
+        <div>
+          <strong>Artikelen komen uit het dashboard.</strong> Naam, prijs, foto,
+          groep en barcode worden daar beheerd — door Trucksupply voor wat zij
+          leveren, door het kantoor voor de rest. De kassa haalt ze op en houdt
+          ze hier, zodat je ook zonder internet met de juiste prijs kunt
+          verkopen.
+          <div style={{ marginTop: 6 }}>
+            Hier valt daarom niets te wijzigen. Dat is niet omdat het niet mag
+            maar omdat het niet zou werken: een kassa die een prijs terugstuurt
+            overschrijft wat het kantoor gisteren heeft gezet.
+          </div>
+        </div>
+      </div>
+
       <p className="uitleg">
         Prijzen zijn inclusief btw — dat is wat op het bord staat en wat de
         chauffeur betaalt. Hangt een artikel aan de voorraad, dan boekt elke
         verkoop het daar af, net zoals in de wasstraat-app.
       </p>
 
-      {!magBewaren && (
-        <div className="leverancierdoos" style={{ marginBottom: 14 }}>
-          <Truck size={17} />
-          <div>
-            <strong>Lezen kan, wijzigen niet.</strong> Deze kassa heeft een eigen
-            inlogaccount, en dat mag geen artikelen aanpassen — anders zijn de
-            inloggegevens van een tablet achter de balie genoeg om prijzen te
-            wijzigen.
-            <div style={{ marginTop: 6 }}>
-              Artikelen komen van Trucksupply; prijzen zet het kantoor in het
-              dashboard. Moet dat hier wel kunnen, dan hoort dat recht bij deze
-              kassa te worden gezet — en dat gaat via een migratie, niet via
-              een knop hier.
-            </div>
-          </div>
-        </div>
-      )}
-
       {producten.length === 0 ? (
-        <Leeg tekst="Nog geen artikelen. Maak er een aan met de knop hierboven." />
+        <Leeg tekst="Er staan nog geen artikelen in de cache. Het kantoor zet ze in het dashboard; daarna komen ze met de eerstvolgende synchronisatie mee." />
       ) : (
         <table className="tabel">
           <thead>
@@ -213,9 +213,9 @@ function Artikelen({ register }: { register: PosRegister }) {
             {producten.map((p) => (
               <tr
                 key={p.id}
-                onClick={() => setBewerken(p)}
+                onClick={() => setBekijken(p)}
                 style={{ cursor: 'pointer', opacity: p.active ? 1 : 0.5 }}
-                title={magBewaren ? undefined : 'Alleen lezen op deze kassa'}
+                title="Bekijken"
               >
                 <td>
                   {/*
@@ -223,7 +223,11 @@ function Artikelen({ register }: { register: PosRegister }) {
                     het kassascherm. Zo zie je in één blik welke artikelen er nog
                     geen hebben -- anders moet je ze één voor één openklikken.
                   */}
-                  <Artikelfoto foto={p.image} naam={p.name} maat={38} />
+                  <Artikelfoto
+                    foto={artikelFoto(p, voorraadKaart(voorraadItems)) ?? undefined}
+                    naam={p.name}
+                    maat={38}
+                  />
                 </td>
                 <td>{p.name}</td>
                 <td>{p.groupName}</td>
@@ -238,248 +242,197 @@ function Artikelen({ register }: { register: PosRegister }) {
         </table>
       )}
 
-      {bewerken && (
-        <ArtikelBewerken
-          product={bewerken}
-          magBewaren={magBewaren}
-          onSluiten={() => setBewerken(null)}
+      {bekijken && (
+        <ArtikelBekijken
+          product={bekijken}
+          onSluiten={() => setBekijken(null)}
         />
       )}
     </div>
   )
 }
 
-function ArtikelBewerken({
-  product, magBewaren, onSluiten,
-}: { product: PosProduct; magBewaren: boolean; onSluiten: () => void }) {
-  const [p, setP] = useState<PosProduct>(product)
-  const [fout, setFout] = useState<string | null>(null)
+/* ================================================================== *
+ *  Eén artikel bekijken
+ *
+ *  Wat er aan een balie nodig is: wat kost het, welke barcode hoort erbij,
+ *  hangt het aan de voorraad en hoeveel ligt er. Alles alleen-lezen, want dit
+ *  komt uit het dashboard.
+ *
+ *  Waarom er toch een venster voor is en niet alleen een rij in een tabel: de
+ *  foto en de voorraadstand passen niet in een rij, en juist die twee zijn
+ *  waar iemand naar zoekt als hij iets niet kan vinden of niet kan verkopen.
+ * ================================================================== */
 
+function ArtikelBekijken({
+  product, onSluiten,
+}: { product: PosProduct; onSluiten: () => void }) {
   const voorraad = useLiveQuery(() => db.inventory.toArray(), [], [] as InventoryItem[])
   const locaties = useLiveQuery(() => db.locations.toArray(), [], [])
 
-  const zet = <K extends keyof PosProduct>(k: K, v: PosProduct[K]) => setP({ ...p, [k]: v })
-
-  /*
-   * Hangt dit artikel aan de voorraad, dan beheert Trucksupply het.
-   *
-   * Naam, eenheid en foto komen daarvandaan en worden bij elke levering
-   * bijgewerkt: wat je hier intikt is bij de volgende synchronisatie weg. Dat
-   * is geen fout maar het ziet er wel zo uit, dus staan die velden vast en
-   * staat erboven waarom.
-   *
-   * Prijs, groep, kleur en plaats op het scherm blijven wel van de kassa. Wat
-   * een chauffeur betaalt en waar de tegel staat, is kassawerk.
-   */
-  /*
-   * Twee redenen om een veld vast te zetten, en ze zeggen iets anders.
-   *
-   * vanLeverancier: dit veld komt van Trucksupply en wordt daar bijgewerkt.
-   * !magBewaren:    deze kassa mag helemaal niets aan artikelen wijzigen.
-   *
-   * Ze staan apart omdat de melding erboven verschilt: bij de eerste kun je
-   * de prijs nog zetten, bij de tweede niets.
-   */
-  const vanLeverancier = uitDeVoorraad(p)
-  const vast = !magBewaren
-  const artikel = p.inventoryItemId
-    ? voorraad.find((i) => i.id === p.inventoryItemId)
+  const kaart = voorraadKaart(voorraad)
+  const artikel = product.inventoryItemId
+    ? voorraad.find((i) => i.id === product.inventoryItemId)
     : undefined
+  const stand = artikelVoorraad(product, kaart)
+  const foto = artikelFoto(product, kaart)
 
-  async function bewaar() {
-    if (!p.name.trim()) { setFout('Een artikel heeft een naam nodig.'); return }
-    if (!(p.priceIncl >= 0)) { setFout('De prijs kan niet negatief zijn.'); return }
-    if (p.kind === 'strippenkaart' && !(p.credits && p.credits > 0)) {
-      setFout('Zet erbij hoeveel beurten er op de kaart komen.'); return
-    }
-    if (p.kind === 'abonnement' && !(p.validDays && p.validDays > 0)) {
-      setFout('Zet erbij hoeveel dagen het abonnement geldig is.'); return
-    }
-    if (p.kind === 'wasbeurt' && !p.washService) {
-      setFout('Kies welke wasbeurt dit is, zodat de wasstraat weet wat er moet gebeuren.')
-      return
-    }
-
-    const rij = { ...p, name: p.name.trim(), updatedAt: Date.now() }
-    await db.products.put(rij)
-    await enqueue('products', 'put', rij.id, rij)
-    toast.ok('Artikel opgeslagen.')
-    onSluiten()
-  }
+  const vestiging = product.locationId
+    ? locaties.find((l) => l.id === product.locationId)?.name
+    : null
 
   return (
     <Dialoog
-      titel={product.name || 'Nieuw artikel'}
+      titel={product.name || 'Artikel'}
       onSluiten={onSluiten}
       wijd
-      voet={
-        <>
-          <Knop soort="stil" onClick={onSluiten}>{magBewaren ? 'Annuleren' : 'Sluiten'}</Knop>
-          {magBewaren && (
-            <Knop soort="hoofd" onClick={() => void bewaar()}>Opslaan</Knop>
-          )}
-        </>
-      }
+      voet={<Knop soort="stil" onClick={onSluiten}>Sluiten</Knop>}
     >
-      {vanLeverancier && (
-        <div className="leverancierdoos" style={{ marginBottom: 16 }}>
-          <Truck size={17} />
-          <div>
-            <strong>Dit artikel wordt beheerd door Trucksupply.</strong> Naam,
-            eenheid en foto komen daarvandaan en worden bij een levering
-            bijgewerkt — wat je hier intikt zou bij de volgende synchronisatie
-            weer weg zijn, dus die velden staan vast.
-            <div style={{ marginTop: 6 }}>
-              Prijs, groep, kleur en de plaats op het scherm blijven van de
-              kassa: wat een chauffeur betaalt en waar de tegel staat, is
-              kassawerk.
-              {artikel?.sku && <> Artikelnummer bij de leverancier: <strong>{artikel.sku}</strong>.</>}
+      <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'minmax(0,140px) minmax(0,1fr)' }}>
+        <Artikelfoto foto={foto ?? undefined} naam={product.name} maat={140} />
+
+        <div>
+          {/*
+            Waar het beheerd wordt staat bovenaan. Wie zich afvraagt waarom hij
+            een prijs niet kan wijzigen, hoort dat hier te lezen en niet te
+            moeten ontdekken.
+          */}
+          <div className="leverancierdoos" style={{ marginBottom: 14 }}>
+            <Truck size={17} />
+            <div>
+              {artikel?.sku ? (
+                <>
+                  <strong>Beheerd door Trucksupply.</strong> Artikelnummer{' '}
+                  <strong>{artikel.sku}</strong>. Naam, prijs en foto komen
+                  daarvandaan en worden bij een levering bijgewerkt.
+                </>
+              ) : (
+                <>
+                  <strong>Beheerd in het dashboard.</strong> Naam, prijs, foto en
+                  barcode worden daar gezet; de kassa houdt er een kopie van
+                  zodat hij ook zonder internet werkt.
+                </>
+              )}
             </div>
           </div>
+
+          <div style={{ display: 'grid', rowGap: 8, columnGap: 34, gridTemplateColumns: '1fr 1fr' }}>
+            <Regel label="Prijs inclusief btw" waarde={money(product.priceIncl)} groot />
+            <Regel label="Btw" waarde={`${product.vatPct}%`} />
+            <Regel label="Groep" waarde={product.groupName || 'Overig'} />
+            <Regel label="Soort" waarde={PRODUCT_KIND_LABELS[product.kind]} />
+            <Regel label="Eenheid" waarde={product.unit || 'stuk'} />
+            <Regel label="Artikelnummer" waarde={product.code || '—'} />
+            <Regel label="Barcode" waarde={product.barcode || '—'} />
+            <Regel label="Vestiging" waarde={vestiging ?? 'Alle vestigingen'} />
+            <Regel label="Plaats op het scherm" waarde={String(product.sort)} />
+            <Regel
+              label="Op het kassascherm"
+              waarde={product.active ? 'Ja' : 'Nee, uitgezet'}
+            />
+          </div>
+
+          {product.kind === 'strippenkaart' && (
+            <div style={{ marginTop: 10 }}>
+              <Regel label="Beurten op de kaart" waarde={String(product.credits ?? 0)} />
+            </div>
+          )}
+          {product.kind === 'abonnement' && (
+            <div style={{ marginTop: 10 }}>
+              <Regel label="Geldig" waarde={`${product.validDays ?? 0} dagen`} />
+            </div>
+          )}
+
+          {/* ---- de voorraad ---- */}
+
+          <div style={{ marginTop: 18 }}>
+            <h3 style={{ marginBottom: 8 }}>Voorraad</h3>
+            {!artikel ? (
+              <Uitleg>
+                Dit artikel hangt niet aan de voorraad. Verkoop boekt dus niets
+                af — dat is goed voor een dienst, en bij een fles van het schap
+                betekent het dat de koppeling in het dashboard nog niet is
+                gelegd.
+              </Uitleg>
+            ) : (
+              <>
+                <div style={{ display: 'grid', rowGap: 8, columnGap: 34, gridTemplateColumns: '1fr 1fr' }}>
+                  <Regel
+                    label="Op voorraad"
+                    waarde={`${artikel.stock} ${artikel.unit || 'stuk'}`}
+                    groot
+                  />
+                  <Regel label="Minimum" waarde={`${artikel.minStock} ${artikel.unit || 'stuk'}`} />
+                  {artikel.bestelhoeveelheid ? (
+                    <Regel
+                      label="Per keer meegestuurd"
+                      waarde={`${artikel.bestelhoeveelheid} ${artikel.unit || 'stuk'}`}
+                    />
+                  ) : null}
+                  <Regel label="Leverancier" waarde={artikel.supplier || '—'} />
+                </div>
+
+                {artikel.omschrijving && (
+                  <p className="uitleg" style={{ marginTop: 10 }}>{artikel.omschrijving}</p>
+                )}
+
+                {stand?.leeg && (
+                  <div style={{ marginTop: 12 }}>
+                    <Fout>
+                      Dit staat op nul. Verkopen kan nog wel — de kassa houdt
+                      niemand tegen — maar dan komt de voorraad negatief te
+                      staan, en dat ziet Trucksupply.
+                    </Fout>
+                  </div>
+                )}
+                {stand?.onderMinimum && !stand.leeg && (
+                  <div style={{ marginTop: 12 }}>
+                    <Waarschuwing>
+                      Onder het minimum. Trucksupply heeft daar automatisch
+                      bericht van; aan de balie hoeft niemand iets te doen.
+                    </Waarschuwing>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
-      )}
-
-      <div style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
-        <Veld
-          label="Naam"
-          hint={vanLeverancier ? 'Komt van Trucksupply.' : undefined}
-        >
-          <input
-            value={p.name}
-            onChange={(e) => zet('name', e.target.value)}
-            readOnly={vanLeverancier || vast}
-            disabled={vanLeverancier || vast}
-          />
-        </Veld>
-        <Veld label="Groep" hint="Bepaalt onder welk tabblad hij op het kassascherm staat.">
-          <input value={p.groupName} onChange={(e) => zet('groupName', e.target.value)} />
-        </Veld>
-
-        <Veld label="Prijs inclusief btw">
-          <input
-            className="cijfers"
-            value={String(p.priceIncl)}
-            onChange={(e) => zet('priceIncl', Number(e.target.value.replace(',', '.')) || 0)}
-          />
-        </Veld>
-        <Veld label="Btw-tarief">
-          <select value={p.vatPct} onChange={(e) => zet('vatPct', Number(e.target.value))}>
-            {BTW_TARIEVEN.map((t) => <option key={t} value={t}>{t}%</option>)}
-          </select>
-        </Veld>
-
-        <Veld label="Soort">
-          <select
-            value={p.kind}
-            onChange={(e) => zet('kind', e.target.value as ProductKind)}
-          >
-            {Object.entries(PRODUCT_KIND_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-        </Veld>
-
-        {p.kind === 'wasbeurt' && (
-          <Veld label="Welke wasbeurt" hint="Hiermee komt de opdracht in de wachtrij van de wasstraat.">
-            <select
-              value={p.washService ?? ''}
-              onChange={(e) => zet('washService', (e.target.value || undefined) as ServiceKind)}
-            >
-              <option value="">— kies —</option>
-              {Object.entries(SERVICES).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
-              ))}
-            </select>
-          </Veld>
-        )}
-
-        {p.kind === 'strippenkaart' && (
-          <Veld label="Aantal beurten op de kaart">
-            <input
-              className="cijfers"
-              value={String(p.credits ?? '')}
-              onChange={(e) => zet('credits', Number(e.target.value) || undefined)}
-            />
-          </Veld>
-        )}
-
-        {p.kind === 'abonnement' && (
-          <Veld label="Geldig hoeveel dagen">
-            <input
-              className="cijfers"
-              value={String(p.validDays ?? '')}
-              onChange={(e) => zet('validDays', Number(e.target.value) || undefined)}
-            />
-          </Veld>
-        )}
-
-        <Veld label="Artikelnummer"><input value={p.code} onChange={(e) => zet('code', e.target.value)} /></Veld>
-        <Veld label="Barcode" hint="Scannen zoekt hierop. Leeg laten mag.">
-          <input
-            className="cijfers"
-            value={p.barcode ?? ''}
-            onChange={(e) => zet('barcode', e.target.value || undefined)}
-          />
-        </Veld>
-
-        <Veld label="Voorraadartikel" hint="Verkoop boekt hier af. Leeg laten voor diensten.">
-          <select
-            value={p.inventoryItemId ?? ''}
-            onChange={(e) => zet('inventoryItemId', e.target.value || undefined)}
-          >
-            <option value="">— geen voorraad —</option>
-            {voorraad.map((i) => (
-              <option key={i.id} value={i.id}>{i.name} ({i.stock} {i.unit})</option>
-            ))}
-          </select>
-        </Veld>
-
-        <Veld label="Vestiging" hint="Leeg = op alle vestigingen te koop.">
-          <select
-            value={p.locationId ?? ''}
-            onChange={(e) => zet('locationId', e.target.value || undefined)}
-          >
-            <option value="">Alle vestigingen</option>
-            {locaties.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </Veld>
-
-        <Veld label="Plaats op het scherm" hint="Lage nummers staan vooraan.">
-          <input
-            className="cijfers"
-            value={String(p.sort)}
-            onChange={(e) => zet('sort', Number(e.target.value) || 100)}
-          />
-        </Veld>
-
-        <Veld label="In gebruik">
-          <select
-            value={p.active ? 'ja' : 'nee'}
-            onChange={(e) => zet('active', e.target.value === 'ja')}
-          >
-            <option value="ja">Ja, staat op het kassascherm</option>
-            <option value="nee">Nee, verborgen</option>
-          </select>
-        </Veld>
       </div>
-
-      <div style={{ marginTop: 18 }}>
-        <Fotoveld
-          foto={p.image}
-          naam={p.name}
-          onFoto={(f) => zet('image', f)}
-          /*
-           * Bij een artikel van de leverancier staat de foto vast, maar wel
-           * mét de foto van het artikel erin -- anders lijkt het alsof er geen
-           * foto is terwijl hij op het kassascherm gewoon staat.
-           */
-          vast={vanLeverancier}
-          vervanger={artikelFoto(p, voorraadKaart(voorraad)) ?? undefined}
-        />
-      </div>
-
-      {fout && <div style={{ marginTop: 14 }}><Fout>{fout}</Fout></div>}
     </Dialoog>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat er in de cache staat
+ *
+ *  Eén regel bij de kop, en die is er met een reden: de kassa moet zonder
+ *  internet kunnen verkopen met de juiste prijs én de juiste foto. Dat kan
+ *  alleen als alles is opgehaald, en dat is precies wat je niet ziet als het
+ *  goed gaat. Nu is het na te kijken vóórdat de lijn eruit ligt.
+ * ------------------------------------------------------------------ */
+
+function Cachestand({ register }: { register: PosRegister }) {
+  const { lastSyncAt } = useSync()
+
+  const stand = useLiveQuery(async () => {
+    const alles = await db.products.toArray()
+    const hier = alles.filter((p) =>
+      p.active && (!p.locationId || !register.locationId || p.locationId === register.locationId))
+    const voorraad = voorraadKaart(await db.inventory.toArray())
+    return {
+      aantal: hier.length,
+      metFoto: hier.filter((p) => artikelFoto(p, voorraad)).length,
+    }
+  }, [register.locationId], { aantal: 0, metFoto: 0 })
+
+  return (
+    <span style={{ fontSize: 12.5, color: 'var(--text-3)', textAlign: 'right' }}>
+      {stand.aantal} artikelen in de cache, {stand.metFoto} met foto
+      <br />
+      {lastSyncAt
+        ? `bijgewerkt ${relative(lastSyncAt)}`
+        : 'nog niet bijgewerkt'}
+    </span>
   )
 }
 
@@ -650,6 +603,13 @@ function Codes() {
   const { apparaat } = useAuth()
   const [gekozen, setGekozen] = useState<User | null>(null)
 
+  /*
+   * Mag deze kassa badges maken? Zie apparaatMagBeheren: pos_pins vraagt
+   * mag_kassa_beheren(), en het eigen inlogaccount van een gekoppelde kassa
+   * heeft dat niet.
+   */
+  const magBadges = apparaatMagBeheren(apparaat)
+
   const locatie = apparaat?.locationId
 
   const mensen = useLiveQuery(async () => {
@@ -744,15 +704,25 @@ function Codes() {
       </div>
 
       {gekozen && (
-        <BadgeBeheren user={gekozen} onSluiten={() => setGekozen(null)} />
+        <BadgeBeheren user={gekozen} magBadges={magBadges} onSluiten={() => setGekozen(null)} />
       )}
     </div>
   )
 }
 
+/*
+ * Een badge maken schrijft in pos_pins, en die tabel vraagt
+ * mag_kassa_beheren() -- tenzij het je eigen badge is. Het inlogaccount van een
+ * gekoppelde kassa heeft dat recht niet, dus zou een badge die hier gemaakt
+ * wordt door de database geweigerd worden: hij werkt dan wel op dit apparaat
+ * (de scanner leest hem uit de lokale cache) maar op geen enkele andere kassa.
+ *
+ * Dat is het naarste soort fout: het werkt, tot iemand een andere balie
+ * binnenloopt. Vandaar dezelfde rem als bij de artikelen, met dezelfde uitleg.
+ */
 function BadgeBeheren({
-  user, onSluiten,
-}: { user: User; onSluiten: () => void }) {
+  user, magBadges, onSluiten,
+}: { user: User; magBadges: boolean; onSluiten: () => void }) {
   const [qr, setQr] = useState<string | null>(null)
   const [code, setCode] = useState<string | null>(null)
 
@@ -797,6 +767,21 @@ function BadgeBeheren({
             uit je hoofd.
           </p>
 
+          {!magBadges && (
+            <div style={{ marginBottom: 14 }}>
+              <Uitleg>
+                Een badge aanmaken kan op deze kassa niet. Dit apparaat heeft
+                zijn eigen inlogaccount, en dat mag geen badges uitgeven.
+                <div style={{ marginTop: 6 }}>
+                  Zou hij het toch doen, dan werkt die badge alleen op dit
+                  apparaat en op geen enkele andere kassa — en dat merk je pas
+                  als iemand een andere balie binnenloopt. Laat het kantoor de
+                  badge in het dashboard uitgeven.
+                </div>
+              </Uitleg>
+            </div>
+          )}
+
           {qr ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <img
@@ -810,6 +795,7 @@ function BadgeBeheren({
               <div style={{ display: 'flex', gap: 8 }}>
                 <Knop
                   maat="klein"
+                  disabled={!magBadges}
                   onClick={async () => {
                     await badgeMaken(user.id)
                     toast.ok('Nieuwe badge aangemaakt; de oude werkt niet meer.')
@@ -820,6 +806,7 @@ function BadgeBeheren({
                 <Knop
                   soort="gevaar"
                   maat="klein"
+                  disabled={!magBadges}
                   onClick={async () => {
                     await badgeIntrekken(user.id)
                     toast.ok('Badge ingetrokken.')
@@ -831,6 +818,7 @@ function BadgeBeheren({
             </div>
           ) : (
             <Knop
+              disabled={!magBadges}
               onClick={async () => {
                 try {
                   await badgeMaken(user.id)

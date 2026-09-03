@@ -279,7 +279,8 @@ const AFDRUKKEN = [
     tab: 'Beheer', knop: 'Deze kassa' },
   { naam: 'ontkoppelen', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014',
     tab: 'Beheer', knop: ['Deze kassa', 'Ontkoppelen'] },
-  { naam: 'artikel-foto', thema: 'donker', breedte: 1366, hoogte: 1000, zaad: true,
+  // Eén artikel bekijken: alles alleen-lezen, met de foto en de voorraad erbij.
+  { naam: 'artikel-bekijken', thema: 'donker', breedte: 1366, hoogte: 900, zaad: true,
     nummer: '014', tab: 'Beheer', knop: ['@table.tabel tbody tr:nth-child(2)'] },
   { naam: 'speler', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },
   { naam: 'speler-licht', thema: 'licht', breedte: 1366, hoogte: 850, zaad: true, nummer: '014', tab: 'Speler' },

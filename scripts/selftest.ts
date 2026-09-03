@@ -66,7 +66,10 @@ const kaarten = await import('../src/lib/kaarten')
 const kassa = await import('../src/lib/kassa')
 const kas = await import('../src/lib/kas')
 const { bonOpmaken, alsTekst, bonGegevens } = await import('../src/lib/bon')
-const { PUSH_ORDER, pushPerStuk, useSync } = await import('../src/lib/sync')
+const {
+  NOOIT_STUREN, PUSH_ORDER, enqueue, pushPerStuk,
+  ruimNietMeerVerstuurbaarOp, useSync,
+} = await import('../src/lib/sync')
 const wachtrijLib = await import('../src/lib/wachtrij')
 const foutsoorten = await import('../src/lib/api/supabaseApi')
 const { api: deApi } = await import('../src/lib/api')
@@ -1205,16 +1208,16 @@ const apparaatAccount = {
   roles: ['employee'], grants: ['hours.clock'], isDevice: true,
 } as User
 
-check('een kassa-account mag geen artikelen bewaren',
-  !artikel.apparaatMagArtikelen(apparaatAccount))
+check('een kassa-account mag de kassa niet beheren',
+  !artikel.apparaatMagBeheren(apparaatAccount))
 
 check('met pos.manage erbij wel',
-  artikel.apparaatMagArtikelen({ ...apparaatAccount, grants: ['pos.manage'] } as User))
+  artikel.apparaatMagBeheren({ ...apparaatAccount, grants: ['pos.manage'] } as User))
 
 check('en een kassa die met een managementaccount is ingericht ook',
-  artikel.apparaatMagArtikelen({ ...apparaatAccount, roles: ['management'] } as User))
+  artikel.apparaatMagBeheren({ ...apparaatAccount, roles: ['management'] } as User))
 
-check('zonder account mag er niets', !artikel.apparaatMagArtikelen(null))
+check('zonder account mag er niets', !artikel.apparaatMagBeheren(null))
 
 /* ---- een artikel dat de leverancier uitzet ---- */
 
@@ -1257,6 +1260,69 @@ check('en er staat niets vast in de wachtrij',
 await db.products.delete('prod_uit')
 
 /* ================================================================== */
+
+
+/* ------------------------------------------------------------------ *
+ *  Artikelen gaan nooit meer de deur uit
+ *
+ *  Artikelen en prijzen worden in het dashboard beheerd. De kassa haalt ze op
+ *  en houdt ze in zijn cache, en stuurt er nooit iets terug.
+ *
+ *  Twee redenen, en de tweede is de zwaarste. De database weigert het (een
+ *  kassa-account heeft geen mag_kassa_beheren), dus zo'n rij blijft sinds
+ *  0.10.0 zichtbaar in de wachtrij staan -- een alarm zonder uitweg. En erger:
+ *  de kassa heeft een kopie van elk artikel, dus zou hij die terugsturen, dan
+ *  overschrijft een kassa die een dag uit heeft gestaan de prijs die gisteren
+ *  is gezet. Eén tablet in een hoek kan zo een prijswijziging ongedaan maken.
+ * ------------------------------------------------------------------ */
+
+check('artikelen staan op de lijst van wat nooit verstuurd wordt',
+  NOOIT_STUREN.includes('products'))
+
+check('en staan dus niet meer in de push-volgorde',
+  !PUSH_ORDER.includes('products'))
+
+/*
+ * Bonnen en uren gaan wel. Zou die lijst te ruim worden, dan verdwijnt er
+ * omzet -- vandaar dat dit erbij staat.
+ */
+check('bonnen, uren en kluisboekingen gaan wel de deur uit',
+  !NOOIT_STUREN.includes('sales') && !NOOIT_STUREN.includes('timeEntries') &&
+  !NOOIT_STUREN.includes('safeMoves'))
+
+await db.outbox.clear()
+await enqueue('products', 'put', 'prod_x', { id: 'prod_x', priceIncl: 1 })
+check('een artikel komt niet in de wachtrij', (await db.outbox.count()) === 0)
+
+await enqueue('sales', 'put', 'bon_x', { id: 'bon_x' })
+check('een bon wel', (await db.outbox.count()) === 1)
+
+/* ---- en wat er nog stond, gaat eruit ---- */
+
+/*
+ * Met opzet een uitzondering op "wij gooien niets weg". Deze rijen zouden
+ * anders voor altijd blijven staan: de server weigert ze, en de regels rond
+ * rechten gooien ze juist niet weg. Dan staat er een melding aan de balie die
+ * nooit meer overgaat.
+ */
+await db.outbox.add({
+  entity: 'products', op: 'put', recordId: 'prod_oud',
+  payload: { id: 'prod_oud' }, createdAt: Date.now(), tries: 0, geweigerd: 9,
+})
+check('een artikel dat er nog stond wordt gevonden',
+  (await db.outbox.where('entity').equals('products').count()) === 1)
+
+const opgeruimd = await ruimNietMeerVerstuurbaarOp()
+check('en opgeruimd', opgeruimd === 1 &&
+  (await db.outbox.where('entity').equals('products').count()) === 0)
+
+check('en de bon staat er nog', (await db.outbox.count()) === 1)
+
+check('en er staat niets meer vast', useSync.getState().vast.vast === 0)
+
+await db.outbox.clear()
+await useSync.getState().refreshPending()
+
 
 /* ================================================================== *
  *  12. Briefjes en munten

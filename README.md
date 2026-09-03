@@ -229,18 +229,37 @@ Op het kassascherm betekent dat:
   die er al mee bezig was kan gewoon af — anders staat er een chauffeur met een
   fles in zijn hand die niet meer af te rekenen valt.
 
-In Beheer staat bij zo'n artikel dat Trucksupply het beheert. Naam en foto
-staan vast: die worden bij een levering bijgewerkt, dus wat je hier intikt zou
-bij de volgende synchronisatie weg zijn. Prijs, groep, kleur en de plaats op
-het scherm blijven van de kassa — wat een chauffeur betaalt en waar de tegel
-staat, is kassawerk.
+**Beheer → Artikelen is alleen lezen.** Je ziet wat er in de cache staat, met
+de foto, de prijs, de barcode en de voorraadstand erbij — genoeg om aan de
+balie na te kijken waarom iets niet te vinden of niet te verkopen is. Boven de
+lijst staat hoeveel artikelen er zijn opgehaald, hoeveel er een foto hebben en
+wanneer dat voor het laatst is bijgewerkt: dat is wat je wil weten *vóórdat* de
+lijn eruit ligt.
 
-> **Op een gekoppelde kassa is Beheer → Artikelen alleen lezen.** Het eigen
-> inlogaccount van een kassa mag `pos_products` niet wijzigen; anders zijn de
-> inloggegevens van een tablet achter de balie genoeg om prijzen te wijzigen.
-> Het scherm zegt dat er ook bij in plaats van invoer aan te nemen die de
-> server weigert. Moet het daar wél kunnen, dan hoort dat recht bij die kassa
-> gezet te worden — via een migratie in de dashboard-repo.
+Er valt daar niets te wijzigen, en dat is een keuze en geen beperking waar we
+tegenaan liepen:
+
+1. De database staat het een kassa-account niet toe (`pos_products` vraagt
+   `mag_kassa_beheren()`). Een scherm dat invoer aanneemt die de server weigert,
+   is een scherm dat liegt.
+2. En het is gevaarlijker dan alleen vergeefs. De kassa heeft een kopie van elk
+   artikel. Zou hij die terugsturen, dan overschrijft een kassa die een dag uit
+   heeft gestaan de prijs die gisteren is gezet — laatste schrijver wint. Eén
+   tablet in een hoek kan zo een prijswijziging ongedaan maken zonder dat
+   iemand het ziet.
+
+Daarom staat `products` op de lijst van tabellen die de kassa **nooit**
+verstuurt (`NOOIT_STUREN` in `sync.ts`). Een wijziging die er toch in belandt,
+wordt niet in de wachtrij gezet, en wat er nog stond wordt bij het opstarten
+opgeruimd — met een regel in het logboek. Dat is met opzet de enige plek waar
+de kassa iets uit de wachtrij gooit: die rijen zouden er anders voor altijd
+blijven staan, want de server weigert ze en de regels rond rechten gooien ze
+juist niet weg.
+
+> **Badges hebben hetzelfde.** `pos_pins` vraagt ook `mag_kassa_beheren()`. Een
+> badge die op een gekoppelde kassa wordt aangemaakt werkt alleen op dát
+> apparaat en op geen enkele andere — en dat merk je pas als iemand een andere
+> balie binnenloopt. Die knoppen staan daarom uit, met de reden erbij.
 
 #### Een foto bij het artikel
 

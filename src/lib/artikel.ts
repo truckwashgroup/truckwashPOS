@@ -111,15 +111,19 @@ export function voorraadKaart(items: InventoryItem[]): Map<string, InventoryItem
 }
 
 /* ------------------------------------------------------------------ *
- *  Mag dit apparaat artikelen bewaren?
+ *  Mag dit apparaat de kassa beheren?
  *
  *  Dit gaat over het apparaat en niet over wie er achter de kassa staat, en
  *  dat onderscheid is de hele reden dat deze functie bestaat.
  *
- *  De beveiligingsregel op pos_products is mag_kassa_beheren() -- management,
- *  of het losse recht pos.manage. Een gekoppelde kassa heeft een eigen
- *  inlogaccount met de rol employee en één recht: hours.clock. Die mag dus
- *  niets aan artikelen wijzigen.
+ *  Twee tabellen vragen mag_kassa_beheren() -- management, of het losse recht
+ *  pos.manage: pos_products (artikelen en prijzen) en pos_pins (de badges).
+ *  Een gekoppelde kassa heeft een eigen inlogaccount met de rol employee en
+ *  één recht: hours.clock. Die mag daar dus niets wijzigen.
+ *
+ *  Artikelen zijn inmiddels helemaal uit de kassa: die worden in het dashboard
+ *  beheerd. De badges niet -- een badge maak je aan de balie, met de medewerker
+ *  ernaast. Vandaar dat deze functie blijft bestaan.
  *
  *  In de app werd alleen gekeken of degene die er staat pos.manage heeft. Een
  *  manager aan de kassa kon dus een prijs intikken, op Opslaan drukken, en
@@ -133,6 +137,6 @@ export function voorraadKaart(items: InventoryItem[]): Map<string, InventoryItem
  *  dat dat account, en dan werkt het zoals het altijd werkte.
  * ------------------------------------------------------------------ */
 
-export function apparaatMagArtikelen(apparaat: User | null): boolean {
+export function apparaatMagBeheren(apparaat: User | null): boolean {
   return can(apparaat, 'pos.manage')
 }
