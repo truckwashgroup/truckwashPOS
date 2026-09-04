@@ -987,8 +987,30 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
 .voorportaal {
   display: grid;
   grid-template-columns: 1fr min(560px, 46%);
+  grid-template-areas: "merk werk";
   height: 100%;
   position: relative;
+}
+
+.voorportaal > .merk { grid-area: merk; }
+.voorportaal > .werk { grid-area: werk; }
+
+/*
+  Het vak onderin: versie, en de update als er een klaarstaat.
+
+  Op een breed scherm ligt het onderin de merkkolom -- over dezelfde cel als
+  het merk, onderaan uitgelijnd. Die kolom is leeg, en dat is precies het soort
+  ruimte waar iets mag staan wat niemand hoeft te lezen. Belangrijker: het duwt
+  daar niets weg. Het stond eerst onder het toetsenblok en zakte daar op 850
+  pixels hoog uit beeld -- gemeten, niet bedacht.
+*/
+.voorportaal > .onderin {
+  grid-area: merk;
+  align-self: end;
+  justify-self: start;
+  width: min(46ch, 100%);
+  padding: 0 48px 40px;
+  z-index: 1;
 }
 
 .voorportaal > .merk {
@@ -1036,30 +1058,164 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
   bovenin met een leeg gat eronder. Nu staat het merk in het midden -- waar je
   kijkt -- en het versienummer waar het hoort: uit de weg.
 */
-.voorportaal > .merk .voet {
-  position: absolute;
-  left: 48px;
-  bottom: 40px;
-  font-size: 12.5px;
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
-
 .voorportaal > .werk {
   background: var(--surface);
   border-left: 1px solid var(--line);
   display: grid;
   place-items: center;
+  /*
+   * En als het niet past, vanaf de bovenkant.
+   *
+   * Met place-items:center loopt inhoud die te hoog is aan twee kanten over.
+   * De onderkant kun je nog scrollen, de bovenkant niet: die is met
+   * overflow:auto onbereikbaar. Op een korte tablet is dat het verschil tussen
+   * "de onderste toetsenrij staat laag" en "de kop is weg".
+   *
+   * "safe" betekent: centreren zolang het past, en anders uitlijnen op het
+   * begin. Een browser die het woord niet kent, laat deze regel vallen en
+   * houdt de vorige -- dus dit kan er niets slechter van worden.
+   */
+  place-items: safe center;
   padding: 32px;
   overflow: auto;
 }
 
 .voorportaal .inhoud { width: min(420px, 100%); }
 
+/* ------------------------------------------------------------------
+  De versie en de update, onder het werk
+
+  Dit stond onder Beheer, achter een aanmelding. Nu staat het op het
+  aanmeldscherm zelf, want een kassa waar niemand achter staat hoort juist wél
+  bij te werken.
+
+  "Zichtbaar maar niet hinderlijk": geen kader, geen kleur, geen kop. Het leest
+  als een voetnoot onder het toetsenblok en het neemt geen breedte af van waar
+  iemand zijn nummer intikt. Zodra er iets te installeren valt, komen er
+  knoppen bij -- en dan pas valt het op.
+------------------------------------------------------------------ */
+
+.voorportaal .versieregel {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.voorportaal .versieregel button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--text-3);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.voorportaal .versieregel button:hover:not(:disabled) { color: var(--text-1); }
+.voorportaal .versieregel button:disabled { cursor: default; opacity: .6; }
+
+.updatemelding {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2, rgba(255, 255, 255, .03));
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.updatemelding .regel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.updatemelding .regel .cijfers {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Een balkje dat vooruitgaat is het verschil tussen "hij doet iets" en
+   "hij hangt". */
+.updatemelding .balkje {
+  margin-top: 8px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.updatemelding .balkje i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  transition: width .3s ease;
+}
+
+.updatemelding .knoppen {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.updatemelding .knoppen button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.updatemelding .knoppen button:hover { color: var(--text-1); border-color: var(--text-3); }
+
+.updatemelding .knoppen button.nu {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.updatemelding .kijken {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.updatemelding .kijken:hover { color: var(--text-1); }
+
 /* De brede variant: merk als balk bovenaan, inhoud eronder. */
 .voorportaal.breed {
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas: "kop" "werk" "onderin";
+}
+
+.voorportaal.breed > header { grid-area: kop; }
+
+/* Geen merkkolom om onderin te hangen: dan een eigen rij onder het werk. */
+.voorportaal.breed > .onderin {
+  grid-area: onderin;
+  justify-self: stretch;
+  width: auto;
+  padding: 0 28px 22px;
 }
 
 .voorportaal.breed > header {
@@ -1092,9 +1248,21 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
 
 /* Op een smal scherm valt het merk weg; het werk blijft. */
 @media (max-width: 920px) {
-  .voorportaal { grid-template-columns: 1fr; }
+  .voorportaal {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+    grid-template-areas: "werk" "onderin";
+  }
   .voorportaal > .merk { display: none; }
   .voorportaal > .werk { border-left: 0; }
+
+  /* De merkkolom bestaat hier niet meer, dus krijgt het vak een eigen rij. */
+  .voorportaal > .onderin {
+    grid-area: onderin;
+    justify-self: stretch;
+    width: auto;
+    padding: 0 20px 18px;
+  }
 }
 
 :root[data-thema="licht"] .voorportaal.breed > header {

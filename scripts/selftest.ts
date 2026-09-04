@@ -80,6 +80,9 @@ const beeld = await import('../src/lib/afbeelding')
 const artikel = await import('../src/lib/artikel')
 const { toRow, fromRow } = await import('../src/lib/api/supabaseApi')
 const { vergelijkVersies } = await import('../src/lib/hardware/apkUpdate')
+const {
+  STIL_GENOEG_MS, UITSTEL_MS, mogenWeInstalleren, secondenTeGaan, updateBericht,
+} = await import('../src/lib/updateMoment')
 
 type User = import('../src/lib/types').User
 type PosRegister = import('../src/lib/types').PosRegister
@@ -1486,6 +1489,149 @@ await db.users.delete('u_ingetrokken')
 await db.users.delete('u_zonder')
 await db.outbox.clear()
 await useSync.getState().refreshPending()
+
+/* ================================================================== */
+
+/* ================================================================== *
+ *  22. Een update installeert zichzelf aan de voorkant
+ *
+ *  Gemeld met: "nu moest iemand eerst inloggen, en dat moet niet."
+ *
+ *  Het installeren stond onder Beheer -> Versie, en Beheer zit achter een
+ *  aanmelding. Een kassa waar niemand achter staat -- of waar degene die er
+ *  staat geen beheerrecht heeft -- installeerde dus nooit iets. Op Windows was
+ *  er nog een tweede weg (electron installeert bij het afsluiten), maar een
+ *  kassa die maanden aanstaat sluit nooit af.
+ *
+ *  Wat hier gemeten wordt, is niet dat er een knop is. Het is de andere kant:
+ *  dat een kassa die zichzelf herstart dat niet doet op een moment waarop
+ *  iemand ernaar staat te kijken. Dat is de fout die dit had kunnen worden.
+ * ================================================================== */
+
+console.log('\n22. Een update installeert zichzelf aan de voorkant')
+
+const vrij = {
+  kanaal: 'windows' as const,
+  stand: 'ready' as const,
+  magInstalleren: true,
+  bezet: false,
+  mandje: false,
+  verstuurt: false,
+  stilMs: STIL_GENOEG_MS,
+  uitgesteldTot: null,
+  nu: 1_000_000,
+}
+
+check('een vrije kassa installeert zichzelf, zonder dat iemand inlogt',
+  mogenWeInstalleren(vrij).nu)
+
+/* ---- en alle vier de redenen om te wachten ---- */
+
+const wacht = (naam: string, aanpassing: object, reden: string) => {
+  const uit = mogenWeInstalleren({ ...vrij, ...aanpassing }) as any
+  check(naam, uit.nu === false && uit.reden === reden, JSON.stringify(uit))
+}
+
+wacht('maar niet met iemand achter de kassa', { bezet: true }, 'bezet')
+wacht('niet met iets in het mandje', { mandje: true }, 'mandje')
+wacht('niet halverwege een verzending', { verstuurt: true }, 'verstuurt')
+wacht('en niet als er net iemand op het scherm tikte',
+  { stilMs: STIL_GENOEG_MS - 1 }, 'te-kort-stil')
+wacht('en niet als er niets klaarstaat', { stand: 'available' }, 'niets-klaar')
+
+/*
+ * De stilte-eis is de belangrijkste van de vier, want de andere drie zijn
+ * toestanden en deze is een moment. Iemand die zijn personeelsnummer intikt is
+ * niet aangemeld, heeft niets in het mandje en synchroniseert niet -- en toch
+ * mag de kassa dan niet onder zijn handen weg herstarten.
+ */
+check('en de aftelling loopt af zoals hij hoort',
+  secondenTeGaan({ ...vrij, stilMs: STIL_GENOEG_MS - 5_000 }) === 5)
+check('en telt niet meer als het moment er is',
+  secondenTeGaan(vrij) === 0)
+check('en telt niet als er iemand aan het werk is',
+  secondenTeGaan({ ...vrij, bezet: true }) === null)
+
+/* ---- uitstel ---- */
+
+check('Straks houdt hem vier uur tegen',
+  !mogenWeInstalleren({ ...vrij, uitgesteldTot: vrij.nu + UITSTEL_MS }).nu)
+check('en daarna gaat het alsnog door',
+  mogenWeInstalleren({ ...vrij, uitgesteldTot: vrij.nu - 1 }).nu)
+check('en vier uur is één dienst', UITSTEL_MS === 4 * 60 * 60_000)
+
+/* ---- Android doet het nooit vanzelf, en dat is met opzet ---- */
+
+/*
+ * Android zet altijd zijn eigen bevestiging voor een installatie, ook met de
+ * toestemming aan. Zou de kassa daar vanzelf beginnen, dan staat er op een
+ * onbeheerde tablet een systeemvenster over het aanmeldscherm -- en de eerste
+ * die langskomt ziet niet zijn kassa maar een vraag van Android. Die drukt op
+ * Annuleren.
+ */
+const tablet = { ...vrij, kanaal: 'mobile' as const }
+wacht('een tablet begint er niet vanzelf aan', { kanaal: 'mobile' }, 'wacht-op-een-tik')
+wacht('en zegt het eerlijk als Android het niet toestaat',
+  { kanaal: 'mobile', magInstalleren: false }, 'geen-toestemming')
+
+// De webversie heeft niets te installeren: die laadt de nieuwste bundel.
+wacht('en de webversie herstart nergens voor', { kanaal: 'web' }, 'niets-klaar')
+
+/* ---- wat er op het scherm komt ---- */
+
+/*
+ * "Zichtbaar maar niet hinderlijk" was de eis, en de scherpste vorm daarvan is
+ * deze: een kassa die bij is, zegt niets. Zonder dat staat er permanent een
+ * mededeling op het scherm dat een chauffeur over de balie heen ziet.
+ */
+check('een kassa die bij is zegt niets',
+  updateBericht({ ...vrij, stand: 'up-to-date' }, null) === null)
+check('en een kassa die aan het kijken is ook niet',
+  updateBericht({ ...vrij, stand: 'checking' }, null) === null)
+
+const opgehaald = updateBericht({ ...vrij, stand: 'downloading' }, '0.15.0')!
+check('tijdens het ophalen staat er wat er gebeurt',
+  opgehaald.tekst.includes('0.15.0') && opgehaald.tekst.includes('opgehaald'),
+  opgehaald.tekst)
+check('en geen knop, want er is nog niets te installeren',
+  opgehaald.knop === null && !opgehaald.uitstellen)
+
+const aftellen = updateBericht({ ...vrij, stilMs: 20_000 }, '0.15.0')!
+check('bij het aftellen staan de seconden erbij',
+  aftellen.tekst.includes('25 seconden'), aftellen.tekst)
+check('en dat de kassa even herstart',
+  aftellen.tekst.includes('herstart'), aftellen.tekst)
+check('met een knop om het nu te doen en een om te wachten',
+  aftellen.knop === 'installeren' && aftellen.uitstellen)
+
+/*
+ * En als er wél iemand aan het werk is: geen aftelling, want die zou onwaar
+ * zijn -- er wordt niet geteld. Wel de knop, want wie klaar is mag het zelf
+ * afmaken, en dat hoeft nog steeds zonder aanmelden.
+ */
+const bezig = updateBericht({ ...vrij, bezet: true }, '0.15.0')!
+check('met iemand achter de kassa geen aftelling',
+  !bezig.tekst.includes('seconde') && !bezig.uitstellen, bezig.tekst)
+check('maar wel de knop, en die vraagt geen aanmelding',
+  bezig.knop === 'installeren')
+check('en er staat dat het vanzelf gaat zodra de kassa vrij is',
+  bezig.tekst.includes('vrij is'), bezig.tekst)
+
+const geenToestemming = updateBericht(
+  { ...tablet, magInstalleren: false }, '0.15.0')!
+check('zonder toestemming van Android wijst de knop naar de instelling',
+  geenToestemming.knop === 'toestemming', JSON.stringify(geenToestemming))
+
+/*
+ * En zonder versienummer nog steeds een leesbare zin. newVersion kan null zijn
+ * -- op Android komt het uit GitHub en op Windows uit electron, en beide kunnen
+ * de stand op 'ready' zetten voordat het nummer binnen is. "Versie null staat
+ * klaar" is precies het soort melding dat het vertrouwen kost.
+ */
+const zonderNummer = updateBericht({ ...tablet }, null)!
+check('en zonder versienummer staat er geen null op het scherm',
+  !zonderNummer.tekst.toLowerCase().includes('null')
+  && zonderNummer.tekst.startsWith('Een nieuwe versie'), zonderNummer.tekst)
 
 /* ================================================================== */
 

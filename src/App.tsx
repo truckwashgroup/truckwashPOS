@@ -30,6 +30,7 @@ import { toast } from './store/useToasts'
 import { startSyncEngine, useSync } from './lib/sync'
 import { vastKort } from './lib/wachtrij'
 import { useUpdates } from './lib/updates'
+import { useAutomatischInstalleren } from './components/Updatemelding'
 import { startAfmeldKlok, useAuth } from './store/useAuth'
 import { useMandje } from './store/useMandje'
 import { useSpeler, videoIsKlaar } from './store/useSpeler'
@@ -89,6 +90,17 @@ function Kassascherm() {
    * heeft mag niet op slot gaan omdat de lijst nog leeg is.
    */
   const apparaatRegel = useLiveQuery(() => huidigApparaat(), [], undefined)
+
+  /*
+   * Bijwerken zonder dat iemand ernaar hoeft te vragen.
+   *
+   * Dit staat hier en niet in een van de poorten hieronder, want het moet
+   * blijven lopen: een kassa die nog niet gekoppeld is of die op slot staat,
+   * hoort net zo goed bij te werken. Wat het aan een herstart in de weg legt
+   * -- iemand achter de kassa, iets in het mandje, een lopende verzending --
+   * staat in updateMoment.ts.
+   */
+  useAutomatischInstalleren()
 
   /* ---- opstarten ---- */
   useEffect(() => {

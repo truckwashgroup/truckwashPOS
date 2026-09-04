@@ -1547,14 +1547,23 @@ function Over() {
       <h3>Versie en updates</h3>
       <p className="uitleg">
         {channel === 'mobile'
-          ? 'De kassa kijkt bij het starten of er een nieuwere versie op GitHub ' +
-            'staat en haalt die op de achtergrond op. Installeren doe je hier, ' +
-            'na de dagafsluiting — daarbij vraagt Android één keer om ' +
-            'bevestiging.'
+          ? 'De kassa kijkt bij het starten en daarna elk half uur of er een ' +
+            'nieuwere versie op GitHub staat, en haalt die op de achtergrond op. ' +
+            'Installeren gebeurt op het aanmeldscherm: daar staat een knop die ' +
+            'niemand hoeft in te loggen om te gebruiken. Vanzelf kan het op ' +
+            'Android niet — het systeem vraagt altijd zelf om bevestiging.'
           : 'Op Windows kijkt de kassa bij het starten en elk half uur of er een ' +
             'nieuwere versie op GitHub staat, en downloadt die op de achtergrond. ' +
-            'Installeren gebeurt bij het afsluiten — of hier, na de dagafsluiting.'}
+            'Installeren doet hij daarna zelf, zodra hij vrij is: niemand achter ' +
+            'de kassa, niets in het mandje, en een driekwart minuut niets ' +
+            'aangeraakt. Op het aanmeldscherm staat wat er gaat gebeuren, met ' +
+            'een knop om het nu te doen of uit te stellen.'}
       </p>
+      {/*
+        Waarom deze uitleg hier nog staat terwijl het knopwerk naar de voorkant
+        is verhuisd: dit is de plek waar iemand kijkt die wíl weten hoe het
+        werkt. Het handelen hoort aan de voorkant, het naslagwerk hier.
+      */}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1602,7 +1611,11 @@ function Over() {
         <div style={{ marginTop: 14 }}>
           <Uitleg>
             Versie {newVersion} staat klaar. Installeren duurt een halve minuut en
-            sluit de kassa even af — doe het na de dagafsluiting.
+            sluit de kassa even af.
+            {channel === 'windows'
+              ? ' Dat gebeurt vanzelf zodra er niemand meer achter de kassa staat;' +
+                ' hier kan het ook meteen.'
+              : ' Het kan hier, en ook op het aanmeldscherm zelf.'}
           </Uitleg>
         </div>
       )}

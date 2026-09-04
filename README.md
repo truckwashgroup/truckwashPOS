@@ -511,8 +511,50 @@ kassa) maar in de lokale instellingen van dat ene apparaat.
 
 ### Als er een update klaarstaat
 
-Een stip op het tabblad **Beheer**, want daar staat hij onder Versie. Verder
-niets: een update is nieuws en geen alarm.
+**Hij installeert zichzelf, aan de voorkant, zonder dat iemand inlogt.**
+
+Dat is sinds 0.15.0 zo, en de reden is de vorige opzet: installeren stond onder
+**Beheer → Versie**, en Beheer zit achter een aanmelding. Een kassa waar
+niemand achter staat — of waar degene die er staat geen beheerrecht heeft —
+werkte dus nooit bij. En dat is precies de kassa die het het langst niet doet:
+de tablet bij de tankzuil waar één keer per week iemand komt. Op Windows was er
+nog een tweede weg (electron installeert bij het afsluiten), maar een kassa die
+maanden aanstaat sluit nooit af.
+
+Op het aanmeldscherm staat nu onderin de versie, een link om te kijken of er
+een nieuwe is, en — als er een klaarstaat — wat er gaat gebeuren, met **Nu
+installeren** en **Straks** erbij. Dat werkt ook op een kassa die nog niet
+gekoppeld is.
+
+Wanneer hij het zelf doet ([`src/lib/updateMoment.ts`](src/lib/updateMoment.ts),
+afdeling 22 van de zelftest):
+
+| voorwaarde | waarom |
+| --- | --- |
+| niemand aangemeld | anders verdwijnt het scherm onder de handen van iemand die afrekent |
+| niets in het mandje | de bon overleeft een herstart wel, de chauffeur die ernaar kijkt niet |
+| niets aan het versturen | de wachtrij gaat niet verloren, maar een ronde afmaken is goedkoper dan hem overdoen |
+| 45 seconden niets aangeraakt | iemand die zijn personeelsnummer intikt is niet "niemand" |
+
+Die laatste is de belangrijkste, want de andere drie zijn toestanden en deze is
+een moment.
+
+Op **Android gaat het nooit vanzelf**, en dat is geen keuze van ons: het
+systeem zet altijd zijn eigen bevestiging voor een installatie. Zou de kassa
+daar uit zichzelf beginnen, dan staat er op een onbeheerde tablet een
+systeemvenster over het aanmeldscherm, en de eerste die langskomt ziet niet
+zijn kassa maar een vraag van Android — en drukt op Annuleren. Daar doet de
+knop op het aanmeldscherm dus het werk, en die vraagt geen aanmelding.
+
+Waar het staat is gemeten en niet bedacht. Eerst stond het onder het
+toetsenblok; op een breedbeeldscherm van 850 hoog zakte het daar uit beeld
+(toetsenblok, twee knoppen en twee regels uitleg vullen die kolom al). Nu staat
+het onderin de merkkolom, die leeg is, en op een smal scherm — waar die kolom
+wegvalt — in een eigen rij onder het werk. De zelftest meet per afdruk of alle
+twaalf toetsen te raken zijn en of de melding binnen het venster valt.
+
+Onder Beheer staat nog wel een stip op het tabblad, en daar staat ook de
+uitleg. Verder niets: een update is nieuws en geen alarm.
 
 Er stond eerder een pil "versie 0.10.1 klaar" in de balk bovenaan. Dat werkte
 precies één keer goed — zodra er iets bij kwam, bijvoorbeeld een vastgelopen
@@ -686,13 +728,19 @@ wachttijd van dagen.
 
 Wat de tablet doet:
 
-1. bij het opstarten aan GitHub vragen wat de laatste release is;
+1. bij het opstarten **en daarna elk half uur** aan GitHub vragen wat de
+   laatste release is;
 2. is die nieuwer, dan de APK op de achtergrond ophalen;
-3. melden dat er een versie klaarstaat.
+3. melden dat er een versie klaarstaat — op het aanmeldscherm, met een knop.
 
-Installeren gebeurt pas als iemand erop tikt, onder **Beheer → Versie**. Dat is
-met opzet: een tablet die midden in een transactie vraagt of hij mag
-herstarten, is erger dan een dag met de vorige versie werken.
+Dat halfuur was er niet: de tablet keek alleen bij het opstarten. Een tablet
+achter een balie gaat maanden niet uit, dus die keek één keer en daarna nooit
+meer — precies de kassa waar dit voor bedoeld was.
+
+Installeren gebeurt als iemand op die knop tikt. Dat hoeft niet iemand met
+beheerrechten te zijn en er hoeft niemand voor in te loggen; zie *Als er een
+update klaarstaat*. Vanzelf kan het op Android niet, en een tablet die midden
+in een transactie vraagt of hij mag herstarten zou ook niemand willen.
 
 Android vraagt daarbij één keer om bevestiging, en dat kan niet anders. Software
 die zichzelf zonder vraag kan vervangen is precies wat het recht

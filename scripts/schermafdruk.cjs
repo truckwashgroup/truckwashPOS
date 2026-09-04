@@ -247,6 +247,25 @@ const AFDRUKKEN = [
   // Een kleine tablet in liggende stand: de maat waarop dingen gaan wringen.
   { naam: 'aanmelden-tablet', thema: 'donker', breedte: 1024, hoogte: 700, zaad: true },
 
+  /*
+   * De voorkant met een update die klaarstaat.
+   *
+   * Dit is de afdruk waar het om gaat: het installeren is van Beheer naar het
+   * aanmeldscherm verhuisd, en de eis was "zichtbaar maar niet hinderlijk".
+   * Hinderlijk zou hier één ding betekenen -- dat het toetsenblok eronder
+   * wegzakt -- en dat is precies wat een afdruk niet laat zien maar de meting
+   * eronder wel.
+   *
+   * En de tablet erbij, staand, want daar is het scherm het laagst en valt de
+   * merkkolom weg. Dat is het krapste geval dat er is.
+   */
+  { naam: 'aanmelden-update', thema: 'donker', breedte: 1366, hoogte: 850,
+    zaad: true, update: true },
+  { naam: 'aanmelden-update-licht', thema: 'licht', breedte: 1366, hoogte: 850,
+    zaad: true, update: true },
+  { naam: 'aanmelden-update-tablet', thema: 'donker', breedte: 800, hoogte: 1280,
+    zaad: true, update: true },
+
   // En de schermen waar iemand de hele dag naar kijkt. Het nummer is dat van
   // de nepmedewerker uit ZAAD.
   { naam: 'kassa-donker', thema: 'donker', breedte: 1366, hoogte: 850, zaad: true, nummer: '014' },
@@ -310,6 +329,22 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vas
   })
   win.setMenuBarVisibility(false)
   huidigVenster = win
+
+  /*
+   * Wat de pagina zelf roept, doorgeven.
+   *
+   * Zonder dit is een lege afdruk een raadsel: het venster tekent niets, en de
+   * enige plek waar staat waarom is een console die niemand leest. Alleen wat
+   * op een fout lijkt -- de rest is ruis en verstopt juist wat je zoekt.
+   */
+  win.webContents.on('console-message', (...a) => {
+    // De vorm van dit event verschilt per Electron-versie: soms
+    // (event, niveau, bericht), soms (event, details).
+    const bericht = typeof a[2] === 'string' ? a[2] : String((a[1] && a[1].message) || '')
+    if (bericht && /error|Error|Uncaught|Maximum update|Warning/.test(bericht)) {
+      console.log(`  (${naam}: console -- ${bericht.slice(0, 200)})`)
+    }
+  })
 
   /*
    * De themakeuze staat in localStorage, en die moet er staan vóórdat de app
@@ -430,6 +465,62 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vas
     // geen stip en leek de stip stuk, terwijl het bericht niet aankwam.
     win.webContents.send('update:status', { state: 'ready', version: '0.11.0' })
     await wacht(500)
+  }
+
+  /*
+   * Nakijken of het toetsenblok op de voorkant heel blijft.
+   *
+   * De updatemelding staat onder het toetsenblok, in de gewone stroom. Dat is
+   * de veilige plek -- niets ligt erover -- maar het duwt wel. Op een staande
+   * tablet is het scherm laag, en dan is "het past net" en "de onderste rij
+   * valt eraf" op een plaatje niet te onderscheiden.
+   *
+   * Dus meten we wat een vinger doet: valt het midden van elke toets binnen
+   * het venster, en ligt er niets bovenop.
+   */
+  if (!nummer && !tab) {
+    const voorkant = await win.webContents.executeJavaScript(`
+      (() => {
+        const melding = document.querySelector('.updatemelding')
+        const toetsen = [...document.querySelectorAll('.toets')]
+        const buiten = toetsen.filter((k) => {
+          const r = k.getBoundingClientRect()
+          const x = Math.round(r.left + r.width / 2)
+          const y = Math.round(r.top + r.height / 2)
+          const bovenop = document.elementFromPoint(x, y)
+          return r.bottom > window.innerHeight || r.top < 0
+            || !bovenop || !k.contains(bovenop)
+        })
+        const m = melding ? melding.getBoundingClientRect() : null
+        return JSON.stringify({
+          melding: Boolean(melding),
+          meldingTekst: melding ? (melding.textContent || '').slice(0, 90) : null,
+          meldingInBeeld: m ? m.bottom <= window.innerHeight && m.top >= 0 : null,
+          toetsen: toetsen.length,
+          buiten: buiten.length,
+          versieregel: Boolean(document.querySelector('.versieregel')),
+        })
+      })()
+    `).catch(() => null)
+
+    if (voorkant) {
+      const v = JSON.parse(voorkant)
+      if (v.toetsen && v.buiten) {
+        console.log(`  (${naam}: ${v.buiten} van ${v.toetsen} toetsen NIET TE RAKEN)`)
+      } else if (v.toetsen) {
+        console.log(`  (${naam}: alle ${v.toetsen} toetsen zijn te raken)`)
+      }
+      if (!v.versieregel) console.log(`  (${naam}: GEEN versieregel op de voorkant)`)
+      if (update) {
+        if (!v.melding) {
+          console.log(`  (${naam}: GEEN updatemelding, terwijl er een update klaarstaat)`)
+        } else if (!v.meldingInBeeld) {
+          console.log(`  (${naam}: de updatemelding valt BUITEN het venster)`)
+        } else {
+          console.log(`  (${naam}: melding "${v.meldingTekst.trim()}")`)
+        }
+      }
+    }
   }
 
   if (tab || nummer) {

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import logo from '../assets/kassa-icoon.png'
 import { ThemaKnop } from './ui'
-import { useUpdates } from '../lib/updates'
+import Updatemelding, { Versieregel } from './Updatemelding'
 
 /* ------------------------------------------------------------------ *
  *  Het voorportaal
@@ -18,6 +18,21 @@ import { useUpdates } from '../lib/updates'
  *  iets doet. Wordt het venster smal -- een tablet in staande stand -- dan valt
  *  de linkerkant weg en blijft alleen het werk over. Dat is de goede kant om te
  *  laten vallen.
+ *
+ *  Onderin staat de versie en, als er een update klaarstaat, de melding erover.
+ *  Dat staat hier en niet onder Beheer, want Beheer zit achter een aanmelding
+ *  -- en een kassa waar niemand achter staat hoort juist wél bij te werken.
+ *
+ *  Waar precies, dat is gemeten en niet bedacht. Eerst stond het onder het
+ *  toetsenblok, in de werkkolom. Op een staande tablet paste dat, op een
+ *  breedbeeldscherm van 850 hoog niet: het toetsenblok, twee knoppen en twee
+ *  regels uitleg vullen die kolom al, en de melding zakte eronder weg. Je zag
+ *  één regel en de knoppen niet.
+ *
+ *  Daarom staat het nu in een eigen vak dat met de indeling meeschuift: op een
+ *  breed scherm onderin de merkkolom -- die is leeg, en dat is precies het
+ *  soort ruimte waar iets mag staan wat niemand hoeft te lezen -- en op een
+ *  smal scherm onder het werk, want daar bestaat die kolom niet.
  * ------------------------------------------------------------------ */
 
 export default function Voorportaal({
@@ -34,8 +49,6 @@ export default function Voorportaal({
   breed?: boolean
   ondertitel?: string
 }) {
-  const { version } = useUpdates()
-
   if (breed) {
     return (
       <div className="voorportaal breed">
@@ -49,6 +62,10 @@ export default function Voorportaal({
         </header>
         <div className="werk">
           <div className="inhoud">{children}</div>
+        </div>
+        <div className="onderin">
+          <Updatemelding />
+          <Versieregel />
         </div>
       </div>
     )
@@ -71,11 +88,15 @@ export default function Voorportaal({
             uit.
           </p>
         </div>
-        <div className="voet">versie {version}</div>
       </div>
 
       <div className="werk">
         <div className="inhoud">{children}</div>
+      </div>
+
+      <div className="onderin">
+        <Updatemelding />
+        <Versieregel />
       </div>
     </div>
   )
