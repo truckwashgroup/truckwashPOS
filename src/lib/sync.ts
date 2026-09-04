@@ -38,6 +38,15 @@ const BATCH = 50
  */
 let enabled = false
 
+/**
+ * Staat de synchronisatie aan?
+ *
+ * Alleen om te kunnen nakijken. "Een ingetrokken kassa logt zich volledig uit"
+ * betekent onder andere dat hij ophoudt met versturen, en dat is een bewering
+ * die je hoort te kunnen meten in plaats van te vertrouwen.
+ */
+export const syncStaatAan = () => enabled
+
 export function setSyncEnabled(v: boolean) {
   enabled = v
   if (v) scheduleFlush(150)

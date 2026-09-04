@@ -1553,32 +1553,137 @@ table.tabel td.rechts, table.tabel th.rechts { text-align: right; font-variant-n
  *  Op slot gezet vanaf het dashboard
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------
+  Op slot gezet vanaf het dashboard
+
+  Dit was een net kaartje in de huisstijl. Gemeld met: "als ik een kassa
+  blokkeer, dan moet je aan de kassa dit ook echt zien."
+
+  Een net kaartje leest als "er ging iets mis, probeer het opnieuw" -- en dan
+  gaat iemand herstarten, opnieuw koppelen, of het apparaat wegzetten. Dit is
+  geen storing maar een besluit, en dat hoort van de andere kant van de balie
+  te lezen zijn.
+
+  Vandaar: het hele scherm in de kleur, waarschuwingsstrepen boven en onder, en
+  één woord op 64 pixels. Niet mooi, met opzet. De kleuren staan hier hard en
+  niet op tokens: dit scherm hoort er in het lichte thema precies zo uit te
+  zien als in het donkere, want de boodschap is niet "een tint van de app" maar
+  "hier stopt het".
+------------------------------------------------------------------ */
+
 .opslot {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  text-align: center;
+  color: #fff5f5;
+  background: #4a0b0b;
+}
+
+/* Ingetrokken is geen alarm maar een afsluiting: donker in plaats van rood. */
+.opslot.eruit {
+  color: #f6f2ea;
+  background: #2b2118;
+}
+
+.opslot > .kern {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  min-height: 100vh;
   padding: 28px;
-  text-align: center;
-  background: var(--bg);
-  color: var(--text);
 }
 
-.opslot-icoon {
+/*
+  De strepen.
+
+  Dit is het enige onderdeel van de hele app dat er alleen is om gezien te
+  worden. Ze staan boven en onder, want een scherm met een rand eromheen leest
+  als een venster in de app -- en dit is geen venster maar de app.
+*/
+.opslot .strepen {
+  height: 16px;
+  background: repeating-linear-gradient(
+    -45deg,
+    #ffd400 0 14px,
+    #1a1a1a 14px 28px);
+}
+
+.opslot.eruit .strepen {
+  background: repeating-linear-gradient(
+    -45deg,
+    #8a7a5c 0 14px,
+    #1a1a1a 14px 28px);
+}
+
+.opslot .opslot-icoon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 74px;
-  height: 74px;
-  border-radius: 22px;
-  background: var(--tint-danger);
-  color: var(--text-danger);
+  width: 92px;
+  height: 92px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, .1);
+  border: 2px solid rgba(255, 255, 255, .3);
+  color: #fff;
 }
 
-.opslot h2 { margin: 0; font-size: 24px; }
-.opslot p { max-width: 480px; color: var(--text-2); line-height: 1.6; margin: 0; }
+.opslot h1 {
+  margin: 0;
+  font-size: clamp(38px, 9vw, 64px);
+  line-height: 1;
+  letter-spacing: -1px;
+  text-transform: uppercase;
+}
+
+/* Wélke kassa. Op een vestiging met drie kassa's is "deze kassa" niet genoeg. */
+.opslot .waar {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  opacity: .85;
+}
+
+.opslot .wat {
+  max-width: 54ch;
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.6;
+  opacity: .92;
+}
+
+.opslot .wat.rustig { font-size: 14px; opacity: .75; }
+
+.opslot .stand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/*
+  De knoppen en de pil staan hier op een gekleurde ondergrond, en die kennen
+  hun eigen achtergrond uit de huisstijl. Zonder dit vallen ze weg of gaan ze
+  vloeken -- en juist "Nu versturen" moet leesbaar blijven: dat is het enige
+  wat hier nog nut heeft.
+*/
+.opslot .pil,
+.opslot .btn,
+.opslot button {
+  background: rgba(255, 255, 255, .12);
+  border-color: rgba(255, 255, 255, .35);
+  color: #fff;
+}
+
+.opslot .infodoos {
+  background: rgba(0, 0, 0, .25);
+  border-color: rgba(255, 255, 255, .2);
+  color: #fff;
+}
 
 /* ------------------------------------------------------------------ *
  *  De foto bij een artikel

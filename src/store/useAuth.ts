@@ -66,7 +66,8 @@ interface AuthStore {
    * kassa die naar een andere vestiging verhuist mag daar niet met de
    * artikelen en het personeel van de vorige aankomen.
    */
-  ontkoppel: (opties?: { forceren?: boolean }) => Promise<{ ok: boolean; reden?: string }>
+  ontkoppel: (opties?: { forceren?: boolean; melden?: boolean })
+    => Promise<{ ok: boolean; reden?: string }>
   login: (email: string, password: string) => Promise<boolean>
   logout: () => Promise<void>
 
@@ -274,9 +275,26 @@ export const useAuth = create<AuthStore>((set, get) => ({
      * wissen wordt geweigerd omdat er nog een wachtrij staat, moet de kassa
      * gewoon door kunnen -- dan is er niets gebeurd.
      */
-    const uitslag = await wisApparaat({ forceren: opties?.forceren })
+    const uitslag = await wisApparaat({
+      forceren: opties?.forceren,
+      melden: opties?.melden,
+    })
     if (!uitslag.ok) return uitslag
 
+    /*
+     * En dit is de kant die ontbrak bij een intrekking op afstand.
+     *
+     * Het scherm riep daar apparaatWissen() aan, en dat maakte alleen de
+     * lokale gegevens leeg. Wat bleef staan: de sessie bij Supabase, de
+     * bewaarde inlog, het apparaat in het geheugen van deze store, en de
+     * synchronisatie die met dat account bleef draaien. Een tablet die eruit
+     * gegooid was, hield dus een geldige inlog op het account van die kassa --
+     * en haalde bij de volgende ronde gegevens terug in een cache die net
+     * gewist was.
+     *
+     * "Eruit gooien" hoort te betekenen dat er niets meer is. Vandaar dat er
+     * nu maar één weg naar buiten is, deze, en dat beide gevallen hem lopen.
+     */
     setSyncEnabled(false)
     await storageRemove(SESSION_KEY)
     await supabaseSignOut()

@@ -55,7 +55,7 @@ const bijna = (a: number, b: number) => Math.abs(a - b) < 0.005
 
 /* ---- modules ophalen na het opzetten van de globals ------------------ */
 
-const { db, uid, setMeta } = await import('../src/lib/db')
+const { db, uid, setMeta, getMeta } = await import('../src/lib/db')
 const geld = await import('../src/lib/geld')
 const {
   badgeMaken, herkenBadge, herkenFout, herkenOpNummer, magOpKassa,
@@ -68,7 +68,8 @@ const kas = await import('../src/lib/kas')
 const { bonOpmaken, alsTekst, bonGegevens } = await import('../src/lib/bon')
 const {
   NOOIT_STUREN, OPSCHONEN, PUSH_ORDER, enqueue, pushPerStuk,
-  ruimNietMeerVerstuurbaarOp, useSync, verwijderWatWegIs,
+  ruimNietMeerVerstuurbaarOp, setSyncEnabled, syncStaatAan, useSync,
+  verwijderWatWegIs,
 } = await import('../src/lib/sync')
 const wachtrijLib = await import('../src/lib/wachtrij')
 const foutsoorten = await import('../src/lib/api/supabaseApi')
@@ -2567,6 +2568,114 @@ check('en heeft een tekst voor de balk',
   wachtrijLib.vastKort(standScherm) === '1 klokregel vast')
 
 await db.outbox.clear()
+
+
+/* ================================================================== *
+ *  24. Eruit gegooid is ook echt eruit
+ *
+ *  Gemeld met: "als ik een kassa eruit gooi, dan moet die kassa zichzelf
+ *  volledig uitloggen."
+ *
+ *  Dat deed hij niet. Het scherm riep apparaatWissen() aan, en dat maakte
+ *  alleen de lokale gegevens leeg. Wat bleef staan:
+ *
+ *    - de sessie bij Supabase, dus een geldige inlog op het account van die
+ *      kassa, op een apparaat dat eruit gegooid was;
+ *    - de bewaarde inloggegevens, waarmee hij zich bij de volgende start
+ *      opnieuw zou aanmelden;
+ *    - het apparaat in het geheugen van de store, dus het scherm bleef denken
+ *      dat hij gekoppeld was;
+ *    - de synchronisatie, die met dat account bleef draaien -- en dus gegevens
+ *      terughaalde in een cache die net gewist was.
+ *
+ *  Nu loopt het via ontkoppel() van de store, dezelfde weg als de knop aan de
+ *  balie. Eén deur die het hele werk doet; twee deuren waarvan er één de helft
+ *  deed, is hoe dit is ontstaan.
+ *
+ *  Deze afdeling staat achteraan, net als 15: hij maakt de kassa leeg.
+ * ================================================================== */
+
+console.log('\n24. Eruit gegooid is ook echt eruit')
+
+const { useAuth } = await import('../src/store/useAuth')
+
+/*
+ * Een gekoppelde kassa nabouwen: een apparaatregel, een sessie in de opslag,
+ * en de synchronisatie aan. Dat is precies de stand waarin een intrekking
+ * binnenkomt.
+ */
+async function zetKassaNeer(status: 'actief' | 'ingetrokken') {
+  await db.devices.clear()
+  await db.outbox.clear()
+  await db.devices.put({
+    id: 'dev_slot', registerId: register.id, locationId: register.locationId,
+    deviceKey: 'sleutel-slot', name: 'Windows-kassa', platform: 'windows',
+    appVersion: '0.16.0', status,
+    pairedAt: Date.now() - 86_400_000, lastSeenAt: Date.now(), updatedAt: Date.now(),
+  })
+  await setMeta('apparaatId', 'dev_slot')
+  await db.registers.put(register)
+  await setMeta('registerId', register.id)
+  localStorage.setItem('kassa.sessie', JSON.stringify({ userId: baas.id }))
+  await db.users.put(baas)
+  setSyncEnabled(true)
+  useAuth.setState({ apparaat: baas, operator: baas })
+}
+
+/* ---- eerst de rem: met werk in de wachtrij gaat er niets weg ---- */
+
+/*
+ * Dit is de belangrijkste controle van de twee. Een kassa die zich uitlogt met
+ * een bon in de wachtrij gooit omzet weg die nergens anders bestaat -- niet in
+ * de kassa en niet in de administratie. "Volledig uitloggen" mag nooit
+ * betekenen "en de rest ook".
+ */
+await zetKassaNeer('ingetrokken')
+await enqueue('sales', 'put', 'bon_slot', { id: 'bon_slot', total: 42 })
+
+const remErop = await useAuth.getState().ontkoppel({ melden: true })
+check('met een bon in de wachtrij logt hij zich niet uit',
+  !remErop.ok, JSON.stringify(remErop))
+check('en de bon staat er nog', (await db.outbox.count()) > 0)
+check('en de sessie ook', localStorage.getItem('kassa.sessie') !== null)
+check('en hij blijft versturen, want die bon moet eruit', syncStaatAan())
+check('en het apparaat is nog gekoppeld', useAuth.getState().apparaat !== null)
+
+/* ---- en dan met een lege wachtrij: alles eruit ---- */
+
+await db.outbox.clear()
+await useSync.getState().refreshPending()
+
+const eruit = await useAuth.getState().ontkoppel({ melden: true })
+check('met een lege wachtrij gaat hij er wel uit', eruit.ok, JSON.stringify(eruit))
+
+// De vier dingen die bleven staan, elk apart.
+check('de sessie is weg', localStorage.getItem('kassa.sessie') === null)
+check('het apparaat is uit het geheugen', useAuth.getState().apparaat === null)
+check('en de medewerker ook', useAuth.getState().operator === null)
+check('de synchronisatie staat uit', !syncStaatAan())
+
+// En de gegevens zelf, want een uitgelogde kassa met de artikelen en het
+// personeel van een vestiging er nog op is geen uitgelogde kassa.
+check('het apparaat staat niet meer in de cache',
+  (await db.devices.count()) === 0)
+check('en de vestiging is losgelaten',
+  (await getMeta('apparaatId', null)) === null
+  && (await getMeta('registerId', null)) === null)
+check('en het personeel is eruit', (await db.users.count()) === 0)
+check('en de artikelen', (await db.products.count()) === 0)
+
+/*
+ * En de bewaarde inlog, want dat is de sluipweg: die staat er zodat een kassa
+ * na een opgeschoonde opslag zichzelf weer aanmeldt in plaats van om een nieuwe
+ * code te vragen. Blijft hij staan na een intrekking, dan meldt het apparaat
+ * zich bij de volgende start gewoon opnieuw aan -- en dan heeft het uitloggen
+ * niets uitgehaald.
+ */
+check('en de bewaarde inlog is weg',
+  (await koppelen.bewaardeInlog()) === null)
+
+/* ================================================================== */
 
 await db.close()
 

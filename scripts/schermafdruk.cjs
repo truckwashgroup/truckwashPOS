@@ -40,6 +40,7 @@ const MUZIEKMAP = path.join(WORTEL, 'schermafdrukken', 'proefmuziek')
 const ZAAD = `
 const MUZIEKMAP = ${JSON.stringify(MUZIEKMAP)}
 const VASTGELOPEN = VAST_VLAG
+const APPARAAT_STATUS = APPARAAT_VLAG
 
 new Promise((klaar) => {
   const verzoek = indexedDB.open('truckwash-kassa')
@@ -93,7 +94,7 @@ new Promise((klaar) => {
 
     const t = db.transaction(
       ['users', 'registers', 'locations', 'meta', 'safes', 'safeMoves', 'products',
-       'timeEntries', 'outbox', 'inventory'],
+       'timeEntries', 'outbox', 'inventory', 'devices'],
       'readwrite')
     for (const m of mensen) t.objectStore('users').put(m)
     t.objectStore('locations').put({
@@ -107,6 +108,26 @@ new Promise((klaar) => {
       lastSeq: 0, active: true, updatedAt: nu,
     })
     t.objectStore('meta').put({ key: 'registerId', value: 'reg_demo' })
+
+    /*
+     * Een gekoppeld apparaat, zodat de poorten vóór de kassa te fotograferen
+     * zijn.
+     *
+     * De app komt langs drie poorten: gekoppeld?, mag dit apparaat nog?, wie
+     * staat erachter? Zonder een apparaatregel in de cache viel hij altijd op
+     * de eerste terug, en waren het blokkeerscherm en het intrekscherm op geen
+     * enkele afdruk te zien. Dat zijn precies de twee schermen die zelden
+     * gezien worden en dus ongestoord kunnen verrotten.
+     */
+    if (APPARAAT_STATUS) {
+      t.objectStore('devices').put({
+        id: 'dev_demo', registerId: 'reg_demo', locationId: 'loc_demo',
+        deviceKey: 'demo-sleutel', name: 'Windows-kassa', platform: 'windows',
+        appVersion: '0.16.0', status: APPARAAT_STATUS,
+        pairedAt: nu - 5 * 86400000, lastSeenAt: nu - 120000, updatedAt: nu,
+      })
+      t.objectStore('meta').put({ key: 'apparaatId', value: 'dev_demo' })
+    }
 
     /*
      * Iemand aan het werk, en een wachtrij waarin zijn inklokking vastzit.
@@ -259,6 +280,23 @@ const AFDRUKKEN = [
    * En de tablet erbij, staand, want daar is het scherm het laagst en valt de
    * merkkolom weg. Dat is het krapste geval dat er is.
    */
+  /*
+   * De twee poorten die zelden gezien worden.
+   *
+   * Precies daarom staan ze hier: een scherm dat niemand bekijkt is een scherm
+   * waar een fout ongestoord in blijft zitten. En dit zijn de schermen die het
+   * meest moeten kloppen -- ze verschijnen als er iets aan de hand is met een
+   * apparaat, en dan is een onduidelijke melding het laatste wat helpt.
+   */
+  { naam: 'geblokkeerd', thema: 'donker', breedte: 1366, hoogte: 850,
+    zaad: true, apparaat: 'geblokkeerd' },
+  { naam: 'geblokkeerd-licht', thema: 'licht', breedte: 1366, hoogte: 850,
+    zaad: true, apparaat: 'geblokkeerd' },
+  { naam: 'geblokkeerd-tablet', thema: 'donker', breedte: 800, hoogte: 1280,
+    zaad: true, apparaat: 'geblokkeerd' },
+  { naam: 'eruit-gehaald', thema: 'donker', breedte: 1366, hoogte: 850,
+    zaad: true, apparaat: 'ingetrokken', vast: true },
+
   { naam: 'aanmelden-update', thema: 'donker', breedte: 1366, hoogte: 850,
     zaad: true, update: true },
   { naam: 'aanmelden-update-licht', thema: 'licht', breedte: 1366, hoogte: 850,
@@ -311,7 +349,7 @@ speler.meldSchemaAan()
 
 const wacht = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vast, update }) {
+async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vast, update, apparaat }) {
   const win = new BrowserWindow({
     width: breedte,
     height: hoogte,
@@ -360,7 +398,9 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vas
   if (zaad) {
     // De eerste keer laden heeft de database aangemaakt; nu kan het erin.
     await wacht(600)
-    const zaad = ZAAD.replace('VAST_VLAG', vast ? 'true' : 'false')
+    const zaad = ZAAD
+      .replace('VAST_VLAG', vast ? 'true' : 'false')
+      .replace('APPARAAT_VLAG', apparaat ? JSON.stringify(apparaat) : 'null')
     const gelukt = await win.webContents.executeJavaScript(zaad, true)
     if (!gelukt) console.log(`  (${naam}: nepgegevens klaarzetten lukte niet)`)
   }
@@ -478,7 +518,83 @@ async function maak({ naam, thema, breedte, hoogte, zaad, nummer, tab, knop, vas
    * Dus meten we wat een vinger doet: valt het midden van elke toets binnen
    * het venster, en ligt er niets bovenop.
    */
-  if (!nummer && !tab) {
+  /*
+   * Nakijken of het slot ook echt sluit.
+   *
+   * Twee dingen, en het tweede is het punt: staat de melding er, en is er
+   * werkelijk niets anders meer te bedienen. Een scherm dat er dreigend
+   * uitziet maar waar het toetsenblok nog onder ligt, is geen slot.
+   */
+  if (apparaat) {
+    const slot = await win.webContents.executeJavaScript(`
+      (() => {
+        const vak = document.querySelector('.opslot')
+        if (!vak) return JSON.stringify({ vak: false })
+        const kop = vak.querySelector('h1')
+        const r = kop ? kop.getBoundingClientRect() : null
+        return JSON.stringify({
+          vak: true,
+          woord: kop ? (kop.textContent || '').trim() : null,
+          kophoogte: r ? Math.round(r.height) : 0,
+          inBeeld: r ? r.top >= 0 && r.bottom <= window.innerHeight : false,
+          // Wat er nog van de kassa zelf overeind staat. Hoort nul te zijn.
+          toetsen: document.querySelectorAll('.toets').length,
+          tabs: document.querySelectorAll('.balk .tab').length,
+          vult: Math.round(vak.getBoundingClientRect().height),
+          venster: window.innerHeight,
+          /*
+           * De pil met de wachtrijstand, op de pixel.
+           *
+           * Op de eerste afdruk leek het icoontje over de tekst te vallen. Dat
+           * is met het oog niet te beslissen op een plaatje van 1366 breed --
+           * en een pil die zichzelf overlapt op precies het scherm dat
+           * duidelijk moet zijn, is geen detail. Dus meten: past de inhoud
+           * binnen de pil, en overlappen het icoon en de tekst.
+           */
+          pil: (() => {
+            const pil = vak.querySelector('.pil')
+            if (!pil) return null
+            const p = pil.getBoundingClientRect()
+            const svg = pil.querySelector('svg')
+            const i = svg ? svg.getBoundingClientRect() : null
+            // De tekst zelf, en niet het element eromheen.
+            const bereik = document.createRange()
+            const tekstknoop = [...pil.childNodes]
+              .find((n) => n.nodeType === 3 && n.textContent.trim())
+            if (!tekstknoop) return { breedte: Math.round(p.width) }
+            bereik.selectNodeContents(tekstknoop)
+            const t = bereik.getBoundingClientRect()
+            return {
+              breedte: Math.round(p.width),
+              gat: i ? Math.round(t.left - i.right) : null,
+              past: t.right <= p.right - 1 && (!i || i.left >= p.left - 1),
+            }
+          })(),
+        })
+      })()
+    `).catch(() => null)
+
+    if (slot) {
+      const v = JSON.parse(slot)
+      if (!v.vak) {
+        console.log(`  (${naam}: GEEN slotscherm -- de kassa staat gewoon open)`)
+      } else {
+        console.log(`  (${naam}: "${v.woord}" op ${v.kophoogte}px, ` +
+          `${v.vult}/${v.venster} van het venster)`)
+        if (v.pil) {
+          console.log(`  (${naam}: pil ${v.pil.breedte}px, ` +
+            `gat icoon-tekst ${v.pil.gat}px, past=${v.pil.past})`)
+        }
+        if (v.toetsen || v.tabs) {
+          console.log(`  (${naam}: ER IS NOG TE BEDIENEN -- ` +
+            `${v.toetsen} toetsen, ${v.tabs} tabbladen)`)
+        }
+        if (!v.inBeeld) console.log(`  (${naam}: de kop valt BUITEN het venster)`)
+      }
+    }
+  }
+
+  if (!nummer && !tab && !apparaat) {
     const voorkant = await win.webContents.executeJavaScript(`
       (() => {
         const melding = document.querySelector('.updatemelding')

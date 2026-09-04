@@ -168,13 +168,42 @@ Vanuit het dashboard, bij het apparaat:
 
 | Wat je doet | Wat de kassa doet |
 |---|---|
-| **Blokkeren** | Gaat op slot: er kan niet mee verkocht worden. Blijft wél synchroniseren, dus wat er nog op stond komt alsnog binnen. Weer aanzetten kan. |
-| **Intrekken** | Stuurt eerst zijn wachtrij leeg, wist zich daarna zelf en meldt dat terug (`wiped_at`). Daarna is er een nieuwe code nodig. |
+| **Blokkeren** | Gaat op slot: er kan niet mee verkocht en niet mee geklokt worden. Blijft wél synchroniseren, dus wat er nog op stond komt alsnog binnen. Weer aanzetten kan. |
+| **Intrekken** | Stuurt eerst zijn wachtrij leeg, logt zich daarna volledig uit, wist zich en meldt dat terug (`wiped_at`). Daarna is er een nieuwe code nodig. |
 
 Die twee stappen bij het intrekken zijn er met een reden. Trek je de inlog er
 direct onderuit, dan kan de omzet die nog op dat apparaat stond nergens meer
 aankomen — en die staat dan nergens. Zolang er iets in de wachtrij staat, laat
 de kassa dat groot in beeld zien in plaats van zich te wissen.
+
+**Wat de kassa laat zien.** Het hele scherm, in de kleur, met
+waarschuwingsstrepen en één woord op 64 pixels: **GEBLOKKEERD** of **ERUIT
+GEHAALD**, met de code van de kassa eronder zodat je weet welke je aan de
+telefoon hebt. Er is niets anders meer te bedienen — nul toetsen, nul
+tabbladen; de zelftest meet dat per afdruk.
+
+Dat was eerst een net kaartje in de huisstijl: een slotje van 34 pixels en een
+alinea in grijs. Zo'n kaartje leest als "er ging iets mis, probeer het opnieuw",
+en dan gaat iemand herstarten of opnieuw koppelen. Blokkeren is nooit iets
+kleins — een tablet die kwijt is, een kassa waar iets mee aan de hand is — dus
+hoort het te lezen als een besluit en niet als een storing.
+
+Geen geluid, met opzet: een kassa die begint te piepen op een wasstraat waar
+mensen werken wordt uitgezet of in een kast gelegd, en dan stopt ook het
+versturen van wat er nog op staat.
+
+**"Volledig uitloggen" is letterlijk.** Bij een intrekking ging alleen de lokale
+cache leeg. Wat bleef staan: de sessie bij Supabase, de bewaarde inloggegevens,
+het apparaat in het geheugen van de app, en de synchronisatie die met dat
+account bleef draaien — en dus gegevens terughaalde in een cache die net gewist
+was. Een tablet die eruit gegooid was, hield daarmee een geldige inlog op het
+account van die kassa.
+
+Er is nu één weg naar buiten (`useAuth.ontkoppel`), en de knop aan de balie en
+de intrekking op afstand lopen hem beide. Twee deuren waarvan er één de helft
+deed, is hoe dit is ontstaan. Afdeling 24 van de zelftest loopt alle vijf de
+dingen na, plus de rem: met een bon in de wachtrij gaat er niets weg en blijft
+hij versturen.
 
 ### Deze kassa ontkoppelen
 

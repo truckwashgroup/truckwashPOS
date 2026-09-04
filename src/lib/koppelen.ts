@@ -539,5 +539,19 @@ export async function wisApparaat(opties: WisOpties = {}): Promise<{ ok: boolean
   return { ok: true }
 }
 
-/** Zichzelf wissen na een intrekking van het kantoor. Zie OpSlot. */
-export const apparaatWissen = () => wisApparaat({ melden: true })
+/*
+ * Hier stond apparaatWissen(), de weg die OpSlot nam bij een intrekking op
+ * afstand. Die is weg, en met opzet.
+ *
+ * Wat hij deed was wisApparaat({ melden: true }): de lokale gegevens leeg, en
+ * verder niets. De sessie bij Supabase bleef staan, de bewaarde inlog bleef
+ * staan, het apparaat bleef in het geheugen van de store staan en de
+ * synchronisatie bleef met dat account draaien. Een apparaat dat op afstand
+ * eruit gegooid was, hield dus een geldige inlog -- en haalde bij de volgende
+ * ronde gegevens terug in een cache die net gewist was.
+ *
+ * Het uitloggen zelf hoort niet hier: dat zit in de store, want daar staat de
+ * sessie. Vandaar dat OpSlot nu useAuth().ontkoppel({ melden: true }) aanroept,
+ * dezelfde weg die de knop aan de balie neemt. Eén deur, en die doet het hele
+ * werk -- twee deuren waarvan er één de helft doet, is hoe dit ontstond.
+ */
