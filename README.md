@@ -176,6 +176,29 @@ direct onderuit, dan kan de omzet die nog op dat apparaat stond nergens meer
 aankomen — en die staat dan nergens. Zolang er iets in de wachtrij staat, laat
 de kassa dat groot in beeld zien in plaats van zich te wissen.
 
+**Hoe snel hij het weet.** Elke ronde, dus binnen dertig seconden. Dat werkte
+niet, en de oorzaak lag twee lagen dieper:
+
+1. De kassa stuurde bij zijn uurlijkse "ik ben er nog" de hele apparaatregel
+   mee, inclusief `status: actief`. Zolang de server dat ook vond, viel dat niet
+   op. Zodra het kantoor blokkeerde verschilde het, en dan weigerde de database
+   die update — een apparaat mag zijn eigen status niet zetten.
+2. En `sync()` deed eerst versturen en dan ophalen, in één `try`. Ging het
+   versturen mis, dan kwam het ophalen niet meer aan de beurt.
+
+Bij elkaar: één geweigerde hartslag bevroor alles wat binnen moest komen — de
+blokkade zelf incluis, maar net zo goed nieuwe prijzen, nieuw personeel en een
+intrekking. De kassa ging gewoon door, en pas na opnieuw opstarten (met een
+lege wachtrij) kwam het alsnog binnen. Dat is precies wat er gemeld werd.
+
+Drie dingen zijn daarop veranderd:
+
+| | |
+|---|---|
+| Ophalen hangt niet meer aan versturen | een vastgelopen rij houdt niets meer tegen; de verstuurfout blijft wel gemeld, want daar hangt omzet aan |
+| De kassa stuurt alleen wat hij mag zetten | `EIGEN_KOLOMMEN` in `api/supabaseApi.ts`, gelijk aan de triggers in migratie 0025 |
+| Bij `pos_registers` en `pos_devices` beslist de server | de rem "wat nog in de wachtrij staat is nieuwer" geldt niet voor tabellen waarvan de kassa maar een paar kolommen mag zetten |
+
 **Wat de kassa laat zien.** Het hele scherm, in de kleur, met
 waarschuwingsstrepen en één woord op 64 pixels: **GEBLOKKEERD** of **ERUIT
 GEHAALD**, met de code van de kassa eronder zodat je weet welke je aan de

@@ -148,6 +148,90 @@ const OVERRIDES: Partial<Record<EntityName, Record<string, string>>> = {
 
 export const ALLEEN_BIJWERKEN: EntityName[] = ['registers', 'devices']
 
+/* ------------------------------------------------------------------ *
+ *  En wélke kolommen dan
+ *
+ *  Dit ontbrak, en het was de bron van een vastloper die de hele kassa
+ *  bevroor.
+ *
+ *  De kassa stuurde de hele rij mee bij het bijwerken -- inclusief de status,
+ *  de vestiging en de naam. Die mag hij niet zetten, en de database houdt dat
+ *  ook tegen met een trigger: "een kassa mag van zijn eigen regel alleen
+ *  bijhouden dat hij er nog is."
+ *
+ *  Zolang de waarden gelijk waren, viel dat niet op: gelijk is niet
+ *  "distinct from", dus geen fout. Maar op het moment dat het kantoor die
+ *  kassa blokkeerde, verschilde de status wél -- en werd elke hartslag
+ *  geweigerd. Die rij bleef in de wachtrij staan (dat hoort zo bij een
+ *  weigering op de rechten), en tot versie 0.18.0 hing het ophalen aan het
+ *  versturen. Eén geweigerde hartslag hield dus alle inkomende wijzigingen
+ *  tegen, de blokkade zelf incluis.
+ *
+ *  Dat ophalen is nu losgemaakt, maar dit hoort er ook niet te zijn: een
+ *  scherm dat invoer aanneemt die de server weigert, hoort die invoer niet aan
+ *  te nemen -- en dat geldt net zo goed voor wat de kassa achter de schermen
+ *  verstuurt. Dus sturen we alleen wat mag.
+ *
+ *  De lijsten volgen de triggers in de database (migratie 0025). Verandert daar
+ *  iets, dan hoort dit mee te veranderen.
+ *
+ *  updated_at staat er niet bij, en dat is geen vergeetachtigheid: toRow haalt
+ *  die er altijd uit, want de server zet hem zelf. Dat hoort ook zo -- een
+ *  kassa met een verkeerd gezette klok zou anders rijen kunnen neerzetten die
+ *  in de toekomst liggen, en die komen bij niemand meer langs.
+ * ------------------------------------------------------------------ */
+
+const EIGEN_KOLOMMEN: Partial<Record<EntityName, string[]>> = {
+  // Wat een kassa van zijn eigen kassa-regel mag zetten: zijn randapparatuur
+  // en het bonnummer. Code, naam, vestiging en actief komen uit het dashboard.
+  registers: ['printer', 'terminal', 'lastSeq'],
+
+  /*
+   * Wat een apparaat van zijn eigen regel mag zetten: dat hij er nog is, welke
+   * versie erop staat, en dat hij zich gewist heeft. Niet: vestiging, status,
+   * inlogaccount, dossier of sleutel.
+   */
+  devices: ['name', 'platform', 'appVersion', 'lastSeenAt', 'wipedAt', 'note'],
+}
+
+/*
+ * De lijsten hierboven staan in de namen van de app (camelCase); wat we
+ * versturen staat in de namen van de database. Die omzetting doet toRow al, en
+ * die kent ook de uitzonderingen -- dus laten we hem de lijst omzetten in
+ * plaats van de kolomnamen een tweede keer op te schrijven. Twee lijsten die
+ * hetzelfde horen te zeggen, gaan uit elkaar lopen.
+ */
+const kolommenCache = new Map<EntityName, Set<string>>()
+
+function magKolommen(entity: EntityName): Set<string> | null {
+  const mag = EIGEN_KOLOMMEN[entity]
+  if (!mag) return null
+  let set = kolommenCache.get(entity)
+  if (!set) {
+    const proef = Object.fromEntries(mag.map((k) => [k, true]))
+    set = new Set(Object.keys(toRow(entity, proef)))
+    kolommenCache.set(entity, set)
+  }
+  return set
+}
+
+/**
+ * Alleen de kolommen die dit apparaat zelf mag zetten.
+ *
+ * Openbaar zodat de zelftest hem kan nalopen. Dit is de lijst die gelijk moet
+ * blijven met de triggers in de database, en dat is precies het soort afspraak
+ * dat stil uit elkaar loopt.
+ */
+export function eigenVelden(entity: EntityName, rij: Record<string, unknown>) {
+  const mag = magKolommen(entity)
+  if (!mag) return rij
+  const uit: Record<string, unknown> = {}
+  for (const [kolom, waarde] of Object.entries(rij)) {
+    if (kolom !== 'id' && mag.has(kolom) && waarde !== undefined) uit[kolom] = waarde
+  }
+  return uit
+}
+
 /**
  * Tabellen waarvan we bij de eerste synchronisatie niet de hele historie
  * ophalen. Ze groeien met elke bon; de kassa heeft alleen de recente nodig.
@@ -426,8 +510,17 @@ export const supabaseApi: ApiAdapter = {
          * verwijderd, en dan hoort de kassa hem niet opnieuw neer te zetten.
          */
         for (const rij of upserts) {
-          const { id, ...velden } = rij as { id?: string } & Record<string, unknown>
+          const { id } = rij as { id?: string }
           if (!id) continue
+
+          /*
+           * En alleen de kolommen die dit apparaat mag zetten. Zie
+           * EIGEN_KOLOMMEN: de rest houdt de database tegen, en dan blijft de
+           * rij voor niets in de wachtrij staan.
+           */
+          const velden = eigenVelden(entity, rij as Record<string, unknown>)
+          if (!Object.keys(velden).length) continue
+
           const { error } = await supabase().from(table).update(velden).eq('id', id)
           if (error) weiger(table, `bijwerken in ${table}`, error)
         }

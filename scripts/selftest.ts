@@ -79,7 +79,7 @@ const kluis = await import('../src/lib/kluis')
 const koppelen = await import('../src/lib/koppelen')
 const beeld = await import('../src/lib/afbeelding')
 const artikel = await import('../src/lib/artikel')
-const { toRow, fromRow } = await import('../src/lib/api/supabaseApi')
+const { toRow, fromRow, eigenVelden } = await import('../src/lib/api/supabaseApi')
 const { vergelijkVersies } = await import('../src/lib/hardware/apkUpdate')
 const {
   STIL_GENOEG_MS, UITSTEL_MS, mogenWeInstalleren, secondenTeGaan, updateBericht,
@@ -2568,6 +2568,202 @@ check('en heeft een tekst voor de balk',
   wachtrijLib.vastKort(standScherm) === '1 klokregel vast')
 
 await db.outbox.clear()
+
+
+/* ================================================================== *
+ *  25. Komt een blokkade wel aan?
+ *
+ *  Gemeld met: "ik kan nog doorgaan? enkel als ik de gehele app restart gooit
+ *  hij me er pas uit."
+ *
+ *  Het scherm hangt aan de apparaatregel in de cache, en die hoort bij elke
+ *  ronde bijgewerkt te worden. Dat scherm is er, de regel wordt opgehaald, en
+ *  toch gebeurde er niets. Dus meten we de weg zelf: van een ronde naar wat er
+ *  daarna in de cache staat.
+ *
+ *  Drie stappen, en de laatste twee zijn waar het misging.
+ * ================================================================== */
+
+console.log('\n25. Komt een blokkade wel aan?')
+
+const echtePull = (deApi as any).pull
+const zetPull = (fn: any) => { (deApi as any).pull = fn }
+const echtePing = (deApi as any).ping
+
+const apparaatId = 'dev_blok'
+
+async function apparaatInCache(status: string) {
+  await db.devices.clear()
+  await db.devices.put({
+    id: apparaatId, registerId: register.id, locationId: register.locationId,
+    deviceKey: 'sleutel-blok', name: 'Windows-kassa', platform: 'windows',
+    status, pairedAt: Date.now() - 86_400_000,
+    lastSeenAt: Date.now(), updatedAt: Date.now(),
+  } as any)
+  await setMeta('apparaatId', apparaatId)
+}
+
+/** Eén ronde, met een server die zegt dat dit apparaat geblokkeerd is. */
+function serverZegtGeblokkeerd() {
+  zetPull(async () => ({
+    serverTime: Date.now(),
+    changes: {
+      devices: [{
+        id: apparaatId, registerId: register.id, locationId: register.locationId,
+        deviceKey: 'sleutel-blok', name: 'Windows-kassa', platform: 'windows',
+        status: 'geblokkeerd', pairedAt: Date.now() - 86_400_000,
+        lastSeenAt: Date.now(), updatedAt: Date.now(),
+      }],
+    },
+  }))
+}
+
+/* ---- 1. de gewone weg ---- */
+
+await apparaatInCache('actief')
+await db.outbox.clear()
+serverZegtGeblokkeerd()
+zetPush(async () => {})
+;(deApi as any).ping = async () => true
+setSyncEnabled(true)
+
+await useSync.getState().sync({ silent: true })
+check('een ronde zet de blokkade in de cache',
+  (await koppelen.huidigApparaat())?.status === 'geblokkeerd',
+  String((await koppelen.huidigApparaat())?.status))
+
+/* ---- 2. met een rij die blijft weigeren ---- */
+
+/*
+ * En dit is de fout waar het om ging.
+ *
+ * sync() deed eerst versturen en dan ophalen, in een enkele try. Ging het
+ * versturen mis, dan kwam het ophalen niet meer aan de beurt -- en dan kwam er
+ * niets meer binnen. Geen blokkade, geen intrekking, geen nieuwe prijzen, geen
+ * personeel dat eruit is.
+ *
+ * En dat is geen zeldzaam geval. Een geblokkeerde kassa stuurt zijn hartslag
+ * met status "actief", de database weigert dat (een apparaat mag zijn eigen
+ * status niet zetten), en zo'n weigering laat de rij met opzet in de wachtrij
+ * staan. Een vastgelopen rij bevroor daarmee alles wat binnen moest komen --
+ * de blokkade zelf incluis. Vandaar dat de kassa gewoon doorging.
+ *
+ * Twee dingen zitten hier in een controle, en dat is met opzet: het is ook een
+ * situatie. De rij staat nog in de wachtrij (dus de rem "lokaal is nieuwer"
+ * mag hem niet tegenhouden) en het versturen weigert (dus het ophalen mag er
+ * niet aan hangen).
+ */
+await apparaatInCache('actief')
+await db.outbox.clear()
+await enqueue('devices', 'put', apparaatId, { id: apparaatId, status: 'actief' })
+serverZegtGeblokkeerd()
+zetPush(async () => {
+  throw new foutsoorten.GeenRechten('pos_devices', 'een kassa mag zijn eigen status niet zetten')
+})
+
+await useSync.getState().sync({ silent: true })
+check('een geweigerde rij houdt de blokkade niet meer tegen',
+  (await koppelen.huidigApparaat())?.status === 'geblokkeerd',
+  String((await koppelen.huidigApparaat())?.status))
+
+/*
+ * En de fout van het versturen is niet verdwenen. Zou die stil wegvallen, dan
+ * ruilen we een kassa die niets meer ophaalt in voor een kassa die niet meer
+ * verstuurt zonder dat iemand het ziet -- en dat tweede is erger, want daar
+ * hangt omzet aan.
+ */
+check('en de fout van het versturen staat er nog',
+  (useSync.getState().lastError ?? '').length > 0,
+  String(useSync.getState().lastError))
+check('terwijl de ronde wel is doorgelopen',
+  useSync.getState().lastSyncAt !== null)
+
+/*
+ * En de rij zelf is niet weggegooid. Dat hoort ook zo: een weigering op de
+ * rechten zegt niets over dat record, en een kassa die zijn wachtrij weggooit
+ * omdat de server iets anders weigerde, gooit omzet weg.
+ */
+check('en de geweigerde rij staat er nog', (await db.outbox.count()) > 0)
+
+/* ---- en waarom die weigering er ueberhaupt was ---- */
+
+/*
+ * De kassa stuurde bij het bijwerken de hele rij mee, status inbegrepen.
+ * Zolang de waarden gelijk waren viel dat niet op -- gelijk is niet "distinct
+ * from", dus geen fout. Maar zodra het kantoor blokkeerde, verschilde de
+ * status en werd elke hartslag geweigerd.
+ *
+ * Een scherm dat invoer aanneemt die de server weigert, hoort die invoer niet
+ * aan te nemen. Dat geldt net zo goed voor wat de kassa achter de schermen
+ * verstuurt. Deze lijst moet gelijk blijven met de triggers in de database, en
+ * dat is precies het soort afspraak dat stil uit elkaar loopt -- vandaar dat
+ * hij hier nagelopen wordt.
+ */
+const heleRij = {
+  id: apparaatId, register_id: register.id, location_id: 'loc_anders',
+  device_key: 'andere-sleutel', status: 'actief', auth_user_id: 'auth_x',
+  profile_id: 'u_x', last_seen_at: 1234, app_version: '0.18.0',
+  name: 'Windows-kassa', platform: 'windows', updated_at: 99,
+}
+const magSturen = eigenVelden('devices', heleRij) as Record<string, unknown>
+
+for (const verboden of
+  ['id', 'register_id', 'location_id', 'device_key', 'status', 'auth_user_id', 'profile_id']) {
+  check('een kassa stuurt geen ' + verboden + ' mee', !(verboden in magSturen))
+}
+check('maar wel dat hij er nog is, en op welke versie',
+  magSturen.last_seen_at === 1234 && magSturen.app_version === '0.18.0',
+  JSON.stringify(magSturen))
+
+/*
+ * En updated_at gaat niet mee, ook al staat het in de rij. Dat zet de server
+ * zelf -- een kassa met een verkeerd gezette klok zou anders rijen kunnen
+ * neerzetten die in de toekomst liggen, en die komen bij niemand meer langs.
+ */
+check('en de klok van de kassa gaat niet mee',
+  !('updated_at' in magSturen))
+
+/*
+ * En bij de kassa-regel dezelfde regel: de printer en de pinautomaat mag hij
+ * zetten, zijn code en zijn vestiging niet.
+ */
+const kassaRij = eigenVelden('registers', {
+  id: register.id, code: 'KAS-X', name: 'Anders', location_id: 'loc_anders',
+  active: false, printer: { kind: 'geen' }, last_seq: 7, updated_at: 5,
+}) as Record<string, unknown>
+check('en van zijn kassa-regel alleen de randapparatuur',
+  !('code' in kassaRij) && !('location_id' in kassaRij) && !('active' in kassaRij)
+  && kassaRij.last_seq === 7 && Boolean(kassaRij.printer),
+  JSON.stringify(kassaRij))
+
+/* ---- en een intrekking komt langs dezelfde weg ---- */
+
+zetPull(async () => ({
+  serverTime: Date.now(),
+  changes: {
+    devices: [{
+      id: apparaatId, registerId: register.id, locationId: register.locationId,
+      deviceKey: 'sleutel-blok', name: 'Windows-kassa', platform: 'windows',
+      status: 'ingetrokken', pairedAt: Date.now() - 86_400_000,
+      lastSeenAt: Date.now(), updatedAt: Date.now(),
+    }],
+  },
+}))
+await useSync.getState().sync({ silent: true })
+check('een intrekking komt er net zo goed door',
+  (await koppelen.huidigApparaat())?.status === 'ingetrokken',
+  String((await koppelen.huidigApparaat())?.status))
+
+zetPush(echtePush)
+zetPull(echtePull)
+;(deApi as any).ping = echtePing
+setSyncEnabled(false)
+await db.devices.clear()
+await db.outbox.clear()
+await setMeta('apparaatId', null)
+await useSync.getState().refreshPending()
+
+/* ================================================================== */
 
 
 /* ================================================================== *

@@ -95,7 +95,34 @@ export const useSync = create<SyncStore>((set, get) => ({
       if (!reachable) throw new Error('Geen verbinding')
       set({ online: true })
 
-      const geduwd = await pushOutbox()
+      /*
+       * Versturen en ophalen zijn twee dingen, en dat stond hier niet.
+       *
+       * Het was: eerst pushOutbox(), dan pullChanges(), in één try. Ging het
+       * versturen mis, dan kwam het ophalen niet meer aan de beurt -- en dan
+       * kwam er niets meer binnen. Geen blokkade, geen intrekking, geen nieuwe
+       * prijzen, geen personeel dat eruit is.
+       *
+       * En dat is niet een zeldzaam geval. Sinds versie 0.10.0 blijft een rij
+       * die de server weigert in de wachtrij staan, met opzet: zo'n weigering
+       * zegt niets over dat record en de rij hoort niet weggegooid te worden.
+       * Maar daarmee werd één vastgelopen rij genoeg om alle inkomende
+       * wijzigingen voorgoed tegen te houden. Precies hoe een geblokkeerde
+       * kassa gewoon door bleef gaan: zijn eigen hartslag werd geweigerd (een
+       * apparaat mag zijn eigen status niet zetten), en daarmee kwam de
+       * blokkade nooit binnen.
+       *
+       * Ophalen doen we dus altijd. De fout van het versturen bewaren we en
+       * melden we daarna -- weg is hij niet.
+       */
+      let geduwd = 0
+      let stuurFout: unknown = null
+      try {
+        geduwd = await pushOutbox()
+      } catch (e) {
+        stuurFout = e
+      }
+
       const { serverTime, opgehaald } = await pullChanges()
 
       /*
@@ -105,12 +132,25 @@ export const useSync = create<SyncStore>((set, get) => ({
       const verdwenen = await verwijderWatWegIs()
 
       await setMeta(LAST_SYNC, serverTime)
-      set({ lastSyncAt: serverTime, lastError: null })
 
-      logLive('sync',
-        `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald` +
-        (verdwenen ? `, ${verdwenen} opgeruimd` : ''),
-        { duur: Date.now() - begin })
+      /*
+       * De cursor gaat wél door, ook als het versturen mislukte. Die hoort bij
+       * het ophalen en niet bij het versturen: wat binnengekomen is, is
+       * binnengekomen. De wachtrij houdt zelf bij wat er nog uit moet.
+       */
+      if (stuurFout) {
+        const msg = stuurFout instanceof Error ? stuurFout.message : String(stuurFout)
+        set({ lastSyncAt: serverTime, lastError: msg })
+        logLive('netwerk',
+          `Ophalen gelukt (${opgehaald}), versturen niet: ${msg}`,
+          { duur: Date.now() - begin })
+      } else {
+        set({ lastSyncAt: serverTime, lastError: null })
+        logLive('sync',
+          `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald` +
+          (verdwenen ? `, ${verdwenen} opgeruimd` : ''),
+          { duur: Date.now() - begin })
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       set({ lastError: msg, online: navigator.onLine && !msg.includes('verbinding') })
@@ -401,8 +441,26 @@ async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }>
   const result = await api.pull(since)
   let opgehaald = 0
 
-  // Records die nog in de outbox staan niet overschrijven: lokaal is nieuwer.
-  const queued = new Set((await db.outbox.toArray()).map((r) => r.entity + ':' + r.recordId))
+  /*
+   * Records die nog in de outbox staan niet overschrijven: lokaal is nieuwer.
+   *
+   * Dat geldt voor wat de kassa zelf maakt -- bonnen, uren, kluisboekingen. De
+   * server weet daar nog niets van, dus zou een inkomende rij een oudere zijn.
+   *
+   * Voor twee tabellen is het juist omgekeerd, en dat stond hier niet: van
+   * pos_registers en pos_devices mag de kassa maar een paar kolommen zetten
+   * (zijn printer, zijn pinautomaat, dat hij er nog is). De rest -- de
+   * vestiging, de naam, en vooral de status -- komt uit het dashboard, en de
+   * database dwingt dat ook af met een trigger.
+   *
+   * Zonder deze uitzondering hield de kassa zijn eigen hartslag voor "nieuwer"
+   * dan een blokkade van het kantoor, en die hartslag zegt: actief.
+   */
+  const SERVER_BESLIST: EntityName[] = ['registers', 'devices']
+  const queued = new Set(
+    (await db.outbox.toArray())
+      .filter((r) => !SERVER_BESLIST.includes(r.entity))
+      .map((r) => r.entity + ':' + r.recordId))
 
   for (const [entity, rows] of Object.entries(result.changes) as [EntityName, any[]][]) {
     if (!rows?.length) continue
