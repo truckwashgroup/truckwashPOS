@@ -556,6 +556,18 @@ twaalf toetsen te raken zijn en of de melding binnen het venster valt.
 Onder Beheer staat nog wel een stip op het tabblad, en daar staat ook de
 uitleg. Verder niets: een update is nieuws en geen alarm.
 
+**Nakijken of het werkt.** In het dashboard staat onder Kassa's bij elk
+apparaat de versie die het draait. Die kolom bestond al (`pos_devices.app_version`)
+maar bleef altijd leeg: bij het koppelen stuurde de kassa
+`import.meta.env.VITE_APP_VERSION` mee, en die variabele bestaat nergens — geen
+foutmelding, alleen een veld dat nooit gevuld raakte. En `apparaatGezien()` hield
+alleen `last_seen_at` bij, ook als de versie ondertussen veranderd was.
+
+Vanaf 0.16.0 meldt de kassa zijn versie mee, en een versieverandering wacht het
+uur van die melding niet uit: na een update herstart hij, en dan is dat de
+eerste ronde. Staat er in het dashboard "versie onbekend", dan draait die kassa
+iets ouder dan 0.16.0.
+
 Er stond eerder een pil "versie 0.10.1 klaar" in de balk bovenaan. Dat werkte
 precies één keer goed — zodra er iets bij kwam, bijvoorbeeld een vastgelopen
 wachtrij, was de balk vol en schoof Beheer buiten bereik. Je kon dan dus niet

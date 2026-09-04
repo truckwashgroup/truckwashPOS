@@ -101,6 +101,23 @@ export function apparaatPlatform(): string {
   return Capacitor.isNativePlatform() ? Capacitor.getPlatform() : 'web'
 }
 
+/**
+ * Welke versie hier draait.
+ *
+ * Het versienummer wordt tijdens het bouwen ingebakken (zie vite.config.ts).
+ * Hier stond `import.meta.env.VITE_APP_VERSION`, en die variabele bestaat
+ * niet -- niet in .env, niet in de workflow, nergens. Dus stuurde elke kassa
+ * bij het koppelen een lege versie mee, en stond in het dashboard bij alle
+ * apparaten niets. Precies het soort fout dat blijft zitten: er is geen
+ * foutmelding, alleen een kolom die altijd leeg is.
+ *
+ * De `typeof`-omweg is er voor de zelftest: die draait in Node, waar Vite niet
+ * langs is geweest en de constante dus niet bestaat.
+ */
+export function apparaatVersie(): string {
+  return typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : ''
+}
+
 /** Een naam die in de lijst van het kantoor iets zegt. */
 export function apparaatNaam(): string {
   const soort = apparaatPlatform()
@@ -168,8 +185,7 @@ export async function koppelMetCode(ruweCode: string): Promise<KoppelUitslag> {
             sleutel,
             naam: apparaatNaam(),
             platform: apparaatPlatform(),
-            versie: (import.meta as unknown as { env?: Record<string, string> })
-              .env?.VITE_APP_VERSION ?? '',
+            versie: apparaatVersie(),
           },
         },
       },
@@ -353,17 +369,49 @@ export async function huidigApparaat(): Promise<PosDevice | null> {
   return (await db.devices.get(id)) ?? null
 }
 
-/** Meldt dat dit apparaat er nog is. Meer mag hij van zijn eigen regel niet. */
-export async function apparaatGezien(): Promise<void> {
+/**
+ * Bijhouden dat deze kassa er nog is, en op welke versie hij staat.
+ *
+ * Die versie stond er eerst niet bij, en dat maakte het bijwerken
+ * oncontroleerbaar: je kon in het dashboard wel zien dat een kassa nog meedeed,
+ * maar niet of hij achterliep. Bij een systeem dat zichzelf bijwerkt is dat
+ * juist het enige wat je wilt kunnen nakijken -- "hij doet het vanzelf" is een
+ * bewering tot je het ziet.
+ *
+ * De versie komt liefst van buiten mee: op Windows is dat het nummer dat
+ * electron kent en op Android dat uit de APK zelf, en die kunnen bij een half
+ * gelukte update afwijken van de webbundel. Juist dan wil je weten wat er
+ * daadwerkelijk draait.
+ */
+export async function apparaatGezien(versie?: string): Promise<void> {
   const apparaat = await huidigApparaat()
   if (!apparaat || apparaat.status !== 'actief') return
 
-  // Niet bij elke synchronisatie: één keer per uur is genoeg om te zien dat
-  // een kassa nog meedoet, en het scheelt een rij in de wachtrij per ronde.
-  const uur = 60 * 60_000
-  if (apparaat.lastSeenAt && Date.now() - apparaat.lastSeenAt < uur) return
+  const nu = apparaatVersie()
+  const draait = (versie || nu || '').slice(0, 40)
+  const soort = apparaatPlatform()
 
-  const rij: PosDevice = { ...apparaat, lastSeenAt: Date.now(), updatedAt: Date.now() }
+  /*
+   * Niet bij elke synchronisatie: één keer per uur is genoeg om te zien dat
+   * een kassa nog meedoet, en het scheelt een rij in de wachtrij per ronde.
+   *
+   * Maar een nieuwe versie of een ander soort apparaat wacht dat uur niet uit.
+   * Na een update herstart de kassa, en dan is dit de eerste ronde -- zou hij
+   * dan afhaken op de klok, dan staat er tot een uur later een versienummer in
+   * het dashboard dat niet meer klopt. Dat is precies het moment waarop iemand
+   * kijkt.
+   */
+  const uur = 60 * 60_000
+  const veranderd = draait !== (apparaat.appVersion ?? '') || soort !== apparaat.platform
+  if (!veranderd && apparaat.lastSeenAt && Date.now() - apparaat.lastSeenAt < uur) return
+
+  const rij: PosDevice = {
+    ...apparaat,
+    appVersion: draait || undefined,
+    platform: soort,
+    lastSeenAt: Date.now(),
+    updatedAt: Date.now(),
+  }
   await db.devices.put(rij)
   await enqueue('devices', 'put', rij.id, rij)
 }

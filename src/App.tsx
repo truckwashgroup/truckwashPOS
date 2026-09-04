@@ -156,10 +156,17 @@ function Kassascherm() {
    */
   useEffect(() => {
     if (!apparaat) return
-    void apparaatGezien()
-    const tik = setInterval(() => void apparaatGezien(), 15 * 60_000)
+    /*
+     * De versie gaat mee, en die komt uit de updatestore en niet uit de
+     * webbundel: op Windows kent electron het nummer van de installatie en op
+     * Android staat het in de APK. Bij een half gelukte update wijken die af
+     * van de bundel, en dan is juist het echte nummer wat je wilt zien.
+     */
+    const melden = () => void apparaatGezien(useUpdates.getState().version)
+    melden()
+    const tik = setInterval(melden, 15 * 60_000)
     return () => clearInterval(tik)
-  }, [apparaat?.id])
+  }, [apparaat?.id, updates.version])
 
   /* Een nieuwe medewerker begint op het kassascherm, niet waar de vorige
      gebleven was. */

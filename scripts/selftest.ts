@@ -55,7 +55,7 @@ const bijna = (a: number, b: number) => Math.abs(a - b) < 0.005
 
 /* ---- modules ophalen na het opzetten van de globals ------------------ */
 
-const { db, uid } = await import('../src/lib/db')
+const { db, uid, setMeta } = await import('../src/lib/db')
 const geld = await import('../src/lib/geld')
 const {
   badgeMaken, herkenBadge, herkenFout, herkenOpNummer, magOpKassa,
@@ -1632,6 +1632,147 @@ const zonderNummer = updateBericht({ ...tablet }, null)!
 check('en zonder versienummer staat er geen null op het scherm',
   !zonderNummer.tekst.toLowerCase().includes('null')
   && zonderNummer.tekst.startsWith('Een nieuwe versie'), zonderNummer.tekst)
+
+/* ================================================================== */
+
+/* ================================================================== *
+ *  23. Welke versie draait deze kassa?
+ *
+ *  Aanleiding: het dashboard kon niet zien op welke versie een kassa stond.
+ *  De kolom app_version bestaat in pos_devices, de kassa mag hem van zijn
+ *  eigen regel wijzigen -- en hij vulde hem nooit.
+ *
+ *  Twee oorzaken, en de eerste was de stille:
+ *
+ *    1. Bij het koppelen stuurde de kassa import.meta.env.VITE_APP_VERSION mee,
+ *       en die variabele bestaat niet. Niet in .env, niet in de workflow,
+ *       nergens. Dus stuurde hij een lege tekst, de serverfunctie sloeg netjes
+ *       niets op, en in het dashboard stond bij alle apparaten niets. Geen
+ *       foutmelding, alleen een kolom die altijd leeg is -- in de database van
+ *       vandaag stond bij alle drie de apparaten een leeg veld.
+ *
+ *    2. apparaatGezien() hield alleen last_seen_at bij. Ook als de versie
+ *       ondertussen veranderd was.
+ *
+ *  Waarom dit meer is dan een kolom vullen: de kassa werkt zichzelf bij (zie
+ *  afdeling 22). "Hij doet het vanzelf" is een bewering tot je het kunt nakijken.
+ * ================================================================== */
+
+console.log('\n23. Welke versie draait deze kassa?')
+
+/*
+ * apparaatVersie() geeft in Node een lege tekst: het versienummer wordt tijdens
+ * het bouwen ingebakken en Vite is hier niet langs geweest. Dat het niet
+ * omvalt is wat hier telt -- een zelftest die struikelt over een ontbrekende
+ * bouwconstante meet niets meer.
+ */
+check('de versie opvragen valt niet om zonder bouwstap',
+  typeof koppelen.apparaatVersie() === 'string')
+
+const teApparaat = 'dev_versietest'
+const teRegister = register.id
+
+await setMeta('apparaatId', teApparaat)
+const apparaatRij = {
+  id: teApparaat,
+  registerId: teRegister,
+  locationId: register.locationId,
+  deviceKey: 'sleutel-versietest',
+  name: 'Windows-kassa',
+  platform: 'windows',
+  status: 'actief' as const,
+  pairedAt: Date.now() - 86_400_000,
+  lastSeenAt: Date.now(),
+  updatedAt: Date.now(),
+}
+await db.devices.put(apparaatRij)
+await db.outbox.clear()
+
+/*
+ * De klok staat op "net gezien", dus zonder versieverandering hoort er niets te
+ * gebeuren: één keer per uur is genoeg om te zien dat een kassa nog meedoet, en
+ * elke ronde een rij in de wachtrij is zonde.
+ */
+await koppelen.apparaatGezien('0.15.0')
+check('een nieuwe versie wacht het uur niet uit',
+  (await db.devices.get(teApparaat))?.appVersion === '0.15.0',
+  String((await db.devices.get(teApparaat))?.appVersion))
+check('en gaat de wachtrij in, zodat het kantoor het ziet',
+  (await db.outbox.toArray())
+    .some((r) => r.entity === 'devices' && r.recordId === teApparaat))
+
+/*
+ * Dat het uur wordt overgeslagen bij een verandering is niet netjesheid maar
+ * noodzaak: na een update herstart de kassa, en dan is dit de eerste ronde.
+ * Zou hij dan afhaken op de klok, dan staat er tot een uur later een
+ * versienummer in het dashboard dat niet meer klopt -- en dat is precies het
+ * moment waarop iemand kijkt.
+ */
+await db.outbox.clear()
+await koppelen.apparaatGezien('0.15.0')
+check('maar dezelfde versie binnen het uur niet',
+  (await db.outbox.count()) === 0, String(await db.outbox.count()))
+
+// En na een uur wel, want dan gaat het weer om "hij doet nog mee".
+await db.devices.put({
+  ...(await db.devices.get(teApparaat))!,
+  lastSeenAt: Date.now() - 2 * 60 * 60_000,
+})
+await koppelen.apparaatGezien('0.15.0')
+check('na een uur meldt hij zich alsnog',
+  (await db.outbox.count()) > 0)
+
+/* ---- en zonder nummer van buiten geen onwaarheid ---- */
+
+/*
+ * Op Windows komt het nummer van electron en op Android uit de APK; die kunnen
+ * bij een half gelukte update afwijken van de webbundel, en dan is het echte
+ * nummer wat je wilt zien. Komt er niets mee, dan valt hij terug op de bundel
+ * -- en in Node is die leeg. Dan hoort er geen lege tekst in de kolom te
+ * belanden: leeg en "onbekend" zijn niet hetzelfde, en een lege tekst in een
+ * kolom leest als "hij zei dat hij niets was".
+ */
+await db.outbox.clear()
+await db.devices.put({ ...(await db.devices.get(teApparaat))!, appVersion: undefined })
+await koppelen.apparaatGezien()
+check('zonder nummer blijft het veld leeg in plaats van een lege tekst',
+  (await db.devices.get(teApparaat))?.appVersion === undefined)
+
+/* ---- en een ingetrokken kassa meldt niets meer ---- */
+
+/*
+ * Anders houdt een apparaat dat eruit gezet is zichzelf in het dashboard levend
+ * -- en dan lijkt een intrekking niet gewerkt te hebben.
+ */
+await db.devices.put({ ...(await db.devices.get(teApparaat))!, status: 'ingetrokken' })
+await db.outbox.clear()
+await koppelen.apparaatGezien('0.15.0')
+check('een ingetrokken kassa meldt zich niet meer',
+  (await db.outbox.count()) === 0)
+
+/* ---- wat de kassa van zijn eigen regel mag ---- */
+
+/*
+ * De database laat een apparaat van zijn eigen regel alleen bijhouden dat hij
+ * er nog is; register_id, location_id, status, auth_user_id, profile_id en
+ * device_key houdt een trigger tegen. app_version en platform mag hij wel
+ * zetten -- nagekeken in de live database vóór dit gebouwd werd, want een
+ * scherm dat invoer aanneemt die de server weigert, hoort die invoer niet aan
+ * te nemen.
+ *
+ * Deze controle legt dat vast in code: verandert er ooit iets aan die lijst,
+ * dan hoort dit mee te veranderen.
+ */
+const gestuurd = (await db.devices.get(teApparaat))!
+check('en hij verandert niets aan zijn eigen plek of status',
+  gestuurd.registerId === teRegister
+  && gestuurd.locationId === register.locationId
+  && gestuurd.deviceKey === 'sleutel-versietest')
+
+await db.devices.delete(teApparaat)
+await setMeta('apparaatId', null)
+await db.outbox.clear()
+await useSync.getState().refreshPending()
 
 /* ================================================================== */
 
