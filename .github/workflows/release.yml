@@ -49,6 +49,31 @@ jobs:
           fi
           echo "version=$PKG" >> "$GITHUB_OUTPUT"
 
+      # ----------------------------------------------------------------
+      #  De release alvast neerzetten, leeg
+      # ----------------------------------------------------------------
+      #  Niet netjesheid maar een fix. Electron-builder uploadt zijn drie
+      #  bestanden parallel en elke upload doet "zoek de release op zijn tag,
+      #  maak hem anders aan". Lopen er twee tegelijk, dan maken ze er allebei
+      #  een -- en dan staan er TWEE releases onder dezelfde tag. Bij v0.19.1
+      #  en v0.19.2 is dat gebeurd: de ene kreeg latest.yml en de installer,
+      #  de andere alleen de blockmap.
+      #
+      #  De APK-stap verderop vindt in die toestand niets bruikbaars meer en
+      #  valt om met "Validation Failed: Release already_exists". Zo kwam de
+      #  APK bij beide versies niet in de release terecht terwijl hij wel
+      #  gewoon gebouwd was.
+      #
+      #  Bestaat de release al voordat er iets uploadt, dan hoeft niemand hem
+      #  nog aan te maken en kan de race niet meer optreden. Bij een herstart
+      #  van een gefaalde run is dit ook meteen een no-op.
+      - name: Lege release klaarzetten
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: Truckwash1 Kassa ${{ steps.v.outputs.version }}
+          draft: false
+
   # ------------------------------------------------------------------
   #  De zelftest
   #
