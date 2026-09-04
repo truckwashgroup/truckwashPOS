@@ -170,7 +170,7 @@ function Crediteren({
   const [fout, setFout] = useState<string | null>(null)
   const [bezig, setBezig] = useState(false)
 
-  const volledig = useLiveQuery(() => bonMetAlles(bon.id), [bon.id], null)
+  const volledig = useLiveQuery(async () => bonMetAlles(bon.id), [bon.id], null)
   const regels: PosSaleLine[] = volledig?.regels ?? []
 
   const alles = gekozen.size === 0

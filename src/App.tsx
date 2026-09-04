@@ -82,14 +82,14 @@ function Kassascherm() {
   const [blad, setBlad] = useState<Blad>('kassa')
   const [alleenKlok, setAlleenKlok] = useState(false)
 
-  const register = useLiveQuery(() => huidigeRegister(), [], undefined)
+  const register = useLiveQuery(huidigeRegister, [], undefined)
 
   /*
    * Wat het kantoor van dit apparaat vindt. Undefined is "nog niet gekeken";
    * dat onderscheid is nodig, want een kassa die nog niet gesynchroniseerd
    * heeft mag niet op slot gaan omdat de lijst nog leeg is.
    */
-  const apparaatRegel = useLiveQuery(() => huidigApparaat(), [], undefined)
+  const apparaatRegel = useLiveQuery(huidigApparaat, [], undefined)
 
   /*
    * Bijwerken zonder dat iemand ernaar hoeft te vragen.

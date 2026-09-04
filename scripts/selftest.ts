@@ -14,6 +14,8 @@
  */
 
 import 'fake-indexeddb/auto'
+import { liveQuery } from 'dexie'
+import { readFileSync } from 'node:fs'
 
 /* ---- browsertoestand nabootsen -------------------------------------- */
 
@@ -2753,6 +2755,52 @@ await useSync.getState().sync({ silent: true })
 check('een intrekking komt er net zo goed door',
   (await koppelen.huidigApparaat())?.status === 'ingetrokken',
   String((await koppelen.huidigApparaat())?.status))
+
+/* ---- en het scherm moet die wijziging ook te zien krijgen ----
+ *
+ * De controle hierboven leest de regel achteraf opnieuw uit, en die slaagt
+ * ook als het scherm nooit iets merkt. Dat is precies wat er misging: een
+ * ingetrokken kassa bleef gewoon verkopen omdat App.tsx een niet-async
+ * pijlfunctie aan useLiveQuery gaf. Dexie tilt zijn observatiezone alleen
+ * over een await heen als de querier zelf async is; huidigApparaat() leest
+ * eerst db.meta en pas daarna db.devices, en die tweede lezing viel dus
+ * buiten de bewaking. De rij veranderde, het scherm keek er nooit meer naar.
+ *
+ * Daarom abonneren we hier echt, zoals het scherm dat doet.
+ */
+const gezien: (string | undefined)[] = []
+const abo = liveQuery(koppelen.huidigApparaat).subscribe(
+  (v) => gezien.push(v?.status))
+await new Promise((r) => setTimeout(r, 60))
+await db.devices.bulkPut([{
+  ...(await koppelen.huidigApparaat())!, status: 'actief', updatedAt: Date.now(),
+}])
+await new Promise((r) => setTimeout(r, 150))
+abo.unsubscribe()
+check('een gewijzigde apparaatregel bereikt het scherm',
+  gezien.length > 1, JSON.stringify(gezien))
+
+/*
+ * En de vorm zelf, want de controle hierboven abonneert met de goede vorm en
+ * zou ook slagen als een scherm de kapotte vorm terugzet. Deze helpers lezen
+ * twee tabellen achter elkaar; wie ze in een niet-async pijl aan useLiveQuery
+ * geeft, krijgt een abonnement dat de tweede tabel niet bewaakt.
+ */
+const KETENENDE_HELPERS = ['huidigApparaat', 'huidigeRegister', 'bonMetAlles', 'aanwezig']
+const schermen = [
+  'src/App.tsx', 'src/components/OpSlot.tsx',
+  'src/screens/Bonnen.tsx', 'src/screens/Klok.tsx',
+]
+const kapot: string[] = []
+for (const bestand of schermen) {
+  const tekst = readFileSync(new URL('../' + bestand, import.meta.url), 'utf8')
+  for (const helper of KETENENDE_HELPERS) {
+    // De fout is de pijl zonder async: useLiveQuery(() => helper(...))
+    if (tekst.includes('useLiveQuery(() => ' + helper)) kapot.push(bestand + ' -> ' + helper)
+  }
+}
+check('geen scherm geeft een ketenende helper in een niet-async pijl mee',
+  kapot.length === 0, kapot.join(', '))
 
 zetPush(echtePush)
 zetPull(echtePull)

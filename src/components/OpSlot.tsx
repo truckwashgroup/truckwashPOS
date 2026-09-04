@@ -67,7 +67,7 @@ export default function OpSlot({ apparaat }: { apparaat: PosDevice }) {
    * KAS-AAL-1. Vandaar de code en de naam uit de cache, en de id alleen als
    * die er niet zijn.
    */
-  const register = useLiveQuery(() => huidigeRegister(), [], undefined)
+  const register = useLiveQuery(huidigeRegister, [], undefined)
 
   /*
    * Bij een intrekking wist de kassa zichzelf zodra de wachtrij leeg is,

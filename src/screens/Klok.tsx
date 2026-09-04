@@ -45,7 +45,7 @@ export default function Klok() {
   const [gedaan, setGedaan] = useState<string | null>(null)
   const [corrigeren, setCorrigeren] = useState<Aanwezig | null>(null)
 
-  const ingeklokt = useLiveQuery(() => aanwezig(locatie), [locatie], [] as Aanwezig[])
+  const ingeklokt = useLiveQuery(async () => aanwezig(locatie), [locatie], [] as Aanwezig[])
 
   /* ---- badge: scannen klokt in of uit ---- */
   useScanner(async (gescand) => {
