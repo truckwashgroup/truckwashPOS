@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, Clock, CloudOff, ListMusic, Lock, LogOut, Moon,
@@ -305,7 +305,7 @@ function Balk({
    */
   const updateKlaar = updates.state === 'ready' || updates.state === 'available'
 
-  const tabs: { id: Blad; label: string; icoon: JSX.Element; stip?: boolean }[] = [
+  const tabs: { id: Blad; label: string; icoon: ReactElement; stip?: boolean }[] = [
     { id: 'kassa', label: 'Kassa', icoon: <ShoppingCart size={16} /> },
     { id: 'klok', label: 'Klok', icoon: <Clock size={16} /> },
     { id: 'bonnen', label: 'Bonnen', icoon: <Receipt size={16} /> },

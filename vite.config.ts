@@ -10,7 +10,7 @@ export default defineConfig({
   // relatief pad is verplicht: Electron laadt via file://
   base: './',
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') },
+    alias: { '@': path.resolve(import.meta.dirname, 'src') },
   },
 
   /*
